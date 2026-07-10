@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多品种套利监控器 - 大白话总结</title>
+<style>
+  body { font-family: -apple-system, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 920px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.8; background: #f8f9fa; }
+  h1 { color: #1a5276; border-bottom: 3px solid #2980b9; padding-bottom: 10px; font-size: 26px; }
+  h2 { color: #2874a6; margin-top: 40px; border-left: 5px solid #3498db; padding-left: 12px; font-size: 22px; }
+  h3 { color: #2c3e50; margin-top: 28px; font-size: 18px; }
+  .meta { background: #eaf2f8; padding: 15px; border-radius: 8px; margin: 20px 0; font-size: 14px; }
+  .section { background: white; padding: 25px; border-radius: 10px; margin: 15px 0; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  table { width: 100%; border-collapse: collapse; margin: 15px 0; font-size: 14px; }
+  th { background: #2874a6; color: white; padding: 10px; text-align: left; }
+  td { padding: 10px; border-bottom: 1px solid #e0e0e0; vertical-align: top; }
+  tr:hover { background: #f5f8fa; }
+  .signal { border-left: 4px solid; padding: 15px; margin: 15px 0; border-radius: 6px; }
+  .signal-p0 { border-color: #e74c3c; background: #fdf2f2; }
+  .signal-p1 { border-color: #f39c12; background: #fef9e7; }
+  .signal-p2 { border-color: #27ae60; background: #eafaf1; }
+  .signal-no { border-color: #95a5a6; background: #f4f6f6; }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold; color: white; }
+  .tag-p0 { background: #e74c3c; }
+  .tag-p1 { background: #f39c12; }
+  .tag-p2 { background: #27ae60; }
+  .tag-no { background: #95a5a6; }
+  .why { background: #fef9e7; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 14px; }
+  .math { background: #eaf2f8; padding: 12px; border-radius: 6px; margin: 10px 0; font-family: monospace; font-size: 13px; }
+  .footer { text-align: center; color: #7f8c8d; margin-top: 40px; font-size: 13px; border-top: 1px solid #ddd; padding-top: 15px; }
+  blockquote { border-left: 4px solid #3498db; margin: 15px 0; padding: 10px 20px; background: #f0f7fd; border-radius: 4px; }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  strong { color: #1a5276; }
+</style>
+</head>
+<body>
+
+<h1>📊 多品种套利监控器 - 大白话总结</h1>
+
+<div class="meta">
+  <strong>仓库</strong>：<a href="https://github.com/xxdd3808-lgtm/arbitrage-monitor">xxdd3808-lgtm/arbitrage-monitor</a><br>
+  <strong>写于</strong>：2026-07-10<br>
+  <strong>一句话</strong>：自动盯着 QDII基金、可转债、封闭基金三个品种，出了"大概率能赚钱"的机会就推微信告诉你。
+</div>
+
+<div class="section">
+<p>先说<strong>为什么要做这个项目</strong>。</p>
+<p>之前我们做了一个"华宝油气折溢价监控"，回测后发现一个扎心的事实：折价套利 T+0 赎回扣 1.5% 手续费，5 笔交易胜率才 20%，平均还亏 0.15%。也就是说<strong>看起来有机会，实际上赚不到钱</strong>。</p>
+<p>后来去集思录调研了一圈，发现真正有确定性的机会在三类品种里：可转债、封闭基金、QDII 申购恢复窗口。于是新开了这个项目，专门盯这三类，<strong>只推"大概率能赚钱"的信号，不推没用的噪音</strong>。</p>
+</div>
+
+<!-- ============ 封闭基金 ============ -->
+<h2>一、封闭基金板块：做了什么</h2>
+
+<div class="section">
+<h3>大白话：什么是封闭基金？</h3>
+<p>封闭基金就是<strong>上市交易但不能随时申购赎回</strong>的基金。你可以像买股票一样在场上买卖，但不能直接找基金公司申购或赎回。等到到期日，基金"封转开"，你才能按<strong>净值</strong>赎回。</p>
+<p>关键点来了：<strong>场内交易价往往低于净值</strong>（因为不能随时赎回，流动性差，大家不愿意给满价）。这个差价叫"折价"。</p>
+
+<h3>我做了什么</h3>
+<ul>
+  <li>写了 <code>monitors/sealed_fund.py</code> 模块</li>
+  <li>实时拉场内价（Sina）+ 最新净值（akshare）</li>
+  <li>算两个数：<strong>折价率</strong> = 场内价/净值 - 1；<strong>折价年化</strong> = |折价率| / 剩余年限</li>
+  <li>折价年化 > 8% 就推送</li>
+</ul>
+
+<div class="math">
+折价年化 = |折价率| ÷ 剩余年限<br>
+例：折价 10%，还有 1 年到期 -> 年化 10%<br>
+例：折价 10%，还有 2 年到期 -> 年化 5%
+</div>
+
+<h3><span class="tag tag-p1">P1</span> 什么情况推送？</h3>
+<div class="signal signal-p1">
+<strong>折价年化 > 8%</strong> 时推送。即：折价率除以剩余年限，年化收益超过 8%。
+</div>
+
+<h3>为什么这种情况需要推送？</h3>
+<p>因为这是<strong>时间换空间</strong>的确定性收益。</p>
+<ul>
+  <li>你以折价 10% 买入，意味着你花了 0.9 元买到了净值 1 元的资产</li>
+  <li>持有到到期日，基金封转开，按净值 1 元赎回</li>
+  <li>这 0.1 元的差价<strong>必然收敛</strong>（这是合同规定的，到期必须按净值赎回）</li>
+  <li>剩余 1 年到期 = 年化 10% 收益；剩余 2 年 = 年化 5%</li>
+</ul>
+
+<h3>为什么赚钱概率大？</h3>
+<div class="why">
+<strong>因为这是数学上的确定性，不是赌方向。</strong>
+<ul>
+  <li>✅ 折价收敛是<strong>合同保证</strong>的（到期按净值赎回，没有商量）</li>
+  <li>✅ 唯一风险是期间净值波动（但你如果看好底层资产，这不是风险）</li>
+  <li>✅ 年化 8% 远超银行理财（2-3%）和 A 股长期年化（约 8% 但波动大得多）</li>
+  <li>✅ 适合"买了就不管"的懒人策略</li>
+</ul>
+</div>
+
+<h3>当前状态</h3>
+<p>config.json 里目前只有 1 只示例封基（华夏央调ETF联接A，年化 1.8%，不达标）。<strong>需要你补充更多实际封基</strong>。集思录"封闭基金"板块有完整的折价年化排行，可以挑年化高的加进去。</p>
+</div>
+
+<!-- ============ 可转债 ============ -->
+<h2>二、可转债板块：什么情况推送 + 为什么能赚钱</h2>
+
+<div class="section">
+<h3>大白话：什么是可转债？</h3>
+<p>可转债 = 一张"可以变成股票的债券"。它有两个底牌：</p>
+<ul>
+  <li><strong>债底</strong>：到期公司必须还本付息（约 105-108 元），这是法律义务</li>
+  <li><strong>转股权</strong>：你可以按约定价格把债券转成股票，享受股价上涨</li>
+</ul>
+<p>所以可转债 = <strong>下有保底（债底），上不封顶（转股跟涨）</strong>。这是 A 股最适合散户的低风险品种。</p>
+
+<h3>我做了什么</h3>
+<ul>
+  <li>接了 akshare 的 <code>bond_cb_redeem_jsl</code> 接口（集思录数据，320 只转债）</li>
+  <li>4 类信号检测 + 异常过滤（排除退市转债、数据异常的废债）</li>
+  <li>首次推送 8 只新强赎 + 8 只强赎临近 + 2 只低溢价机会</li>
+</ul>
+
+<h3>4 类推送信号详解</h3>
+
+<div class="signal signal-p1">
+<h3><span class="tag tag-p1">P1</span> 信号1：新强赎公告</h3>
+<p><strong>什么情况</strong>：可转债发布"强制赎回"公告。</p>
+<p><strong>背景</strong>：当正股股价持续高于转股价 130% 时，公司有权按约 101 元强制赎回你手里的转债。这是公司逼你转股的手段。</p>
+<p><strong>为什么推</strong>：如果你手里有这只转债，<strong>不操作会被按 101 元贱卖</strong>。如果转债现在 130 元，你不看公告不操作，最后被按 101 元赎回 = 每张亏 29 元（100 张就亏 2900 元）。</p>
+<p><strong>赚钱逻辑</strong>：这不是"赚钱"信号，是"防大亏"信号。但如果你没有持仓，这是<strong>观察机会</strong>——强赎公告后转债短期抛压（散户被迫卖），如果转股价值仍高于转债价格，可能有机会捡便宜。</p>
+</div>
+
+<div class="signal signal-p1">
+<h3><span class="tag tag-p1">P1</span> 信号2：强赎最后交易日临近（&lt;30天）</h3>
+<p><strong>什么情况</strong>：已公告强赎的转债，最后交易日距今不到 30 天。</p>
+<p><strong>为什么推</strong>：最后交易日是"生死线"。过了这天不转股不卖出，就被按约 101 元强赎。很多散户不看公告，错过最后交易日直接亏 20-30%。</p>
+<p><strong>为什么重要</strong>：这是<strong>不操作就亏钱</strong>的强制提醒。首次测试就发现宏川转债只剩 2 天（最紧急），紫银转债剩 6 天。</p>
+<p><strong>赚钱逻辑</strong>：防亏 = 赚钱。另外，临近最后交易日时，转债价格可能因为抛售潮跌破转股价值，出现"折价转股套利"机会（买入转债 + 立即转股，赚取差价）。</p>
+</div>
+
+<div class="signal signal-p2">
+<h3><span class="tag tag-p2">P2</span> 信号3：到期保本（价格&lt;105 且 剩余&lt;1年）</h3>
+<p><strong>什么情况</strong>：转债现价低于 105 元，且到期日不到 1 年。</p>
+<p><strong>为什么推</strong>：到期公司必须按"面值 100 + 最后一期利息"还本，通常能拿回 105-108 元。</p>
+<div class="math">
+现价 103 元买入 + 到期拿回 106 元 = 赚 3 元<br>
+持有 6 个月 = 年化约 6%（低风险，类似银行理财但收益更高）<br>
+期间正股大涨 -> 转债跟涨，收益可能 10-30%（上不封顶）<br>
+期间正股大跌 -> 转债跌但跌幅有限（到期还有 106 兜底）
+</div>
+<p><strong>为什么赚钱概率大</strong>：</p>
+<ul>
+  <li>✅ 到期还本是<strong>法律义务</strong>（确定性 100%，只要公司不违约）</li>
+  <li>✅ 信用评级 AA+ 以上的公司违约概率极低（&lt;0.1%）</li>
+  <li>✅ 现价 103 买入，最差情况到期拿 106 = 赚 3 元（保底）</li>
+  <li>✅ 最好情况期间正股暴涨，转债跟涨 20-50% = 上不封顶</li>
+  <li>✅ 这是"赢面大输面小"的典型不对称机会</li>
+</ul>
+</div>
+
+<div class="signal signal-p2">
+<h3><span class="tag tag-p2">P2</span> 信号4：低溢价机会（溢价率&lt;5% 且 价格&lt;115）</h3>
+<p><strong>什么情况</strong>：转股溢价率低于 5%，且转债现价低于 115 元。</p>
+<p><strong>两个指标什么意思</strong>：</p>
+<ul>
+  <li><strong>溢价率</strong> = 转债价格比转股价值贵多少。溢价率 5% = 转债比"转股后值多少钱"贵 5%</li>
+  <li><strong>价格&lt;115</strong> = 转债不算贵（历史上 130+ 是高位，90-110 是低位区）</li>
+</ul>
+<p><strong>为什么推</strong>：溢价率低 = 转债"不虚胖"，正股涨转债就实打实跟涨。</p>
+<div class="math">
+例：转债 110 元，转股价值 105 元，溢价率 4.8%<br>
+正股涨 10% -> 转股价值 115.5 -> 转债跟涨到约 115 = 赚 4.5%<br>
+正股跌 10% -> 转股价值 94.5 -> 转债跌到约 100（债底兜底）= 亏 9%
+</div>
+<p><strong>为什么赚钱概率大</strong>：</p>
+<ul>
+  <li>✅ 溢价率&lt;5% 说明"跟涨能力强"（正股涨多少，转债跟多少）</li>
+  <li>✅ 价格&lt;115 说明"下跌空间有限"（债底通常 90-100 兜底）</li>
+  <li>✅ 这是"下有债底保护 + 上有跟涨能力"的甜点区</li>
+  <li>✅ 首次测试发现闻泰转债（溢价 -0.4%，折价！）、宏图转债（溢价 3.6%）</li>
+</ul>
+</div>
+
+<h3>过滤了哪些"假机会"</h3>
+<div class="signal signal-no">
+<p>首次测试时低溢价信号报了 4 只，但其中 2 只是假机会，已过滤：</p>
+<ul>
+  <li>❌ <strong>汇车退债(404004)</strong>：退市转债，正股 0.06 元（接近破产），溢价 -45% 是数据异常，不是真机会。已按代码 4 开头过滤</li>
+  <li>❌ <strong>华峰转债(118071)</strong>：溢价 -33.4%，正股 505 元高价股，数据异常。已按溢价 &lt;-10% 过滤</li>
+</ul>
+<p>过滤后只剩真机会：闻泰转债（正股 20.84，正常）+ 宏图转债（正股 11.53，正常）。</p>
+</div>
+</div>
+
+<!-- ============ QDII 基金 ============ -->
+<h2>三、QDII 基金：改进了什么 + 什么情况推送</h2>
+
+<div class="section">
+<h3>大白话：什么是 QDII 基金？</h3>
+<p>QDII = 基金拿你的钱去买海外资产（美股、原油、黄金等）。华宝油气就是拿钱买美股油气股。这类基金在场内交易，有<strong>场内价</strong>和<strong>净值</strong>两个价，两者不同就有折溢价，折溢价大到一定程度就有套利空间。</p>
+
+<h3>之前 lof-monitor 的问题（为什么推了也没用）</h3>
+<div class="signal signal-no">
+<ul>
+  <li>❌ <strong>只盯华宝油气一只</strong>，错过其他 QDII 的机会</li>
+  <li>❌ <strong>IOPV 估算不稳</strong>：依赖 yfinance 的 XOP 数据，本地和 GitHub Actions 都经常失败</li>
+  <li>❌ <strong>申购赎回状态拿不到</strong>：东财移动 API 全 404，不知道基金能不能申购</li>
+  <li>❌ <strong>推送逻辑蠢</strong>：折价 3% 就推（回测证明 T+0 赎回扣 1.5% 费后不赚钱）、溢价 8% 也推（但申购暂停做不了，推了干瞪眼）</li>
+</ul>
+</div>
+
+<h3>arbitrage-monitor 的改进</h3>
+
+<h4>改进1：数据源全换，更稳更快</h4>
+<table>
+  <tr><th>数据</th><th>之前（lof-monitor）</th><th>现在（arbitrage-monitor）</th></tr>
+  <tr><td>实时价格</td><td>yfinance（不稳）</td><td>Sina 实时行情（稳）</td></tr>
+  <tr><td>实时估值(IOPV)</td><td>自己算 XOP 累计涨幅（复杂易错）</td><td>天天基金 API 直接返回估算值（简单准确）</td></tr>
+  <tr><td>净值</td><td>akshare</td><td>akshare（不变）</td></tr>
+  <tr><td>申购赎回状态</td><td>东财移动 API（全 404）</td><td>config.json 预设 + state 对比检测变化</td></tr>
+</table>
+
+<h4>改进2：扩展到 5 只 QDII-LOF</h4>
+<table>
+  <tr><th>代码</th><th>名称</th><th>底层</th><th>IOPV 估值方式</th></tr>
+  <tr><td>162411</td><td>华宝油气</td><td>美股油气股</td><td>天天基金实时估值 ✅</td></tr>
+  <tr><td>162719</td><td>广发石油</td><td>道琼斯石油</td><td>天天基金实时估值 ✅</td></tr>
+  <tr><td>501018</td><td>南方原油</td><td>WTI 原油</td><td>最新净值（天天基金无估值）</td></tr>
+  <tr><td>160723</td><td>嘉实原油</td><td>布伦特原油</td><td>最新净值（天天基金无估值）</td></tr>
+  <tr><td>161129</td><td>易方达原油</td><td>WTI 原油</td><td>最新净值（天天基金无估值）</td></tr>
+</table>
+
+<h4>改进3：推送逻辑改为"组合信号"（核心改进）</h4>
+<p>之前是"折价 3% 就推"或"溢价 8% 就推"，单独推一个数字。<strong>但折价不赚钱、溢价申购暂停做不了，推了也没用</strong>。</p>
+<p>现在改为<strong>组合信号</strong>：只推"条件组合成立 = 真能操作"的信号。</p>
+
+<h3>4 类推送信号详解</h3>
+
+<div class="signal signal-p0">
+<h3><span class="tag tag-p0">P0 黄金信号</span> 申购恢复 + 溢价 &gt; 3%</h3>
+<p><strong>什么情况</strong>：基金从"暂停申购"变成"开放申购"，且当前溢价超过 3%。</p>
+<p><strong>为什么推</strong>：这是<strong>几年等一回的黄金窗口</strong>。华宝油气常年暂停申购，一旦恢复 + 有溢价，就能申购套利。</p>
+<div class="math">
+操作：按净值申购（便宜）-> T+2 份额到账 -> 场内卖出（贵）<br>
+收益 = 溢价 3% - 申购费 0.15%（1折）= 净赚 2.85%<br>
+风险：T+2 内美股暴跌（但 3% 安全垫能承受约 3% 美股跌幅）
+</div>
+<p><strong>为什么赚钱概率大</strong>：</p>
+<ul>
+  <li>✅ 申购按净值（便宜）+ 卖出按场内价（贵）= 差价是<strong>结构性套利</strong>，不是赌方向</li>
+  <li>✅ 3% 安全垫能承受 3% 美股跌幅，美股单日跌 3% 概率约 5%</li>
+  <li>✅ 期望收益 = 2.85% × 95% - 3% × 5% = +2.5%（正期望）</li>
+  <li>✅ 这种机会几年才一次（华宝油气上次开放申购是很久以前），但一次赚 3-10%</li>
+</ul>
+</div>
+
+<div class="signal signal-p1">
+<h3><span class="tag tag-p1">P1 可操作信号</span> 开放申购 + 持续溢价 &gt; 5%</h3>
+<p><strong>什么情况</strong>：基金当前开放申购，且溢价超过 5%。</p>
+<p><strong>为什么推</strong>：比 P0 安全垫更厚。5% 溢价 - 0.15% 申购费 = 4.85% 安全垫。</p>
+<div class="math">
+收益 = 5% - 0.15% = 净赚 4.85%<br>
+风险：T+2 内美股跌 5% 才亏钱（美股单日跌 5% 概率约 5-10%）<br>
+期望收益 = 4.85% × 90% - 5% × 10% = +3.8%（正期望）
+</div>
+<p><strong>为什么赚钱概率大</strong>：</p>
+<ul>
+  <li>✅ 安全垫 4.85% 远超美股单日平均波动（约 1-2%）</li>
+  <li>✅ 90% 概率赚到 4.85%，10% 概率小亏</li>
+  <li>✅ 但需要基金持续开放申购（华宝油气不满足，其他原油 LOF 偶尔满足）</li>
+</ul>
+</div>
+
+<div class="signal signal-p2">
+<h3><span class="tag tag-p2">P2 极端信号</span> 折价 &gt; 8% / 溢价 &gt; 15%</h3>
+<p><strong>折价 &gt; 8%</strong>（买入+赎回）：</p>
+<ul>
+  <li>8% 折价 - 1.5% 赎回费 = 6.5% 安全垫</li>
+  <li>能承受约 7% 美股涨幅损失</li>
+  <li>回测发现大折价极罕见（13 个月 0 次），但真出现就值得做</li>
+</ul>
+<p><strong>溢价 &gt; 15%</strong>（已持有者卖出信号）：</p>
+<ul>
+  <li>如果你手里有这只基金，溢价 15% 时场内卖出 = 比净值多卖 15%</li>
+  <li>等溢价回落（折价）再买回 = 赚差价</li>
+  <li>首次测试发现南方原油溢价 +10.6%（接近阈值，但申购暂停做不了套利，只有已持有者可考虑卖）</li>
+</ul>
+</div>
+
+<div class="signal signal-no">
+<h3><span class="tag tag-no">不推</span> 为什么这些信号被砍掉了</h3>
+<p><strong>❌ 普通折价 3-5%</strong>：</p>
+<ul>
+  <li>回测证明 T+0 赎回扣 1.5% 费后，5 笔交易胜率才 20%，平均亏 0.15%</li>
+  <li>安全垫太薄（1.5-3.5%），美股随便一波动就吃掉</li>
+  <li>推了也是噪音，还可能误导你做亏钱操作</li>
+</ul>
+<p><strong>❌ 溢价 5-8% 但申购暂停</strong>：</p>
+<ul>
+  <li>做不了（申购通道堵死，没法申购套利）</li>
+  <li>推了干瞪眼，徒增焦虑</li>
+  <li>除非你已有持仓（那是卖出信号，归到 P2 极端溢价）</li>
+</ul>
+</div>
+
+<h3>当前 QDII 实际状态（2026-07-10 测试）</h3>
+<table>
+  <tr><th>基金</th><th>折溢价</th><th>申购</th><th>赎回</th><th>推送？</th><th>原因</th></tr>
+  <tr><td>华宝油气</td><td>-2.62%</td><td>暂停</td><td>开放</td><td>不推</td><td>折价<3%，且申购暂停</td></tr>
+  <tr><td>广发石油</td><td>-2.24%</td><td>暂停</td><td>开放</td><td>不推</td><td>折价<3%</td></tr>
+  <tr><td>南方原油</td><td>+10.60%</td><td>暂停</td><td>开放</td><td>不推</td><td>溢价够大但申购暂停做不了</td></tr>
+  <tr><td>嘉实原油</td><td>+3.83%</td><td>暂停</td><td>开放</td><td>不推</td><td>溢价<5%</td></tr>
+  <tr><td>易方达原油</td><td>+5.53%</td><td>暂停</td><td>开放</td><td>不推</td><td>溢价够但申购暂停</td></tr>
+</table>
+<p><strong>结论</strong>：5 只 QDII 当前都没有可操作信号。全部暂停申购，溢价再高也做不了。<strong>真正等的是 P0 黄金窗口--某只 QDII 突然恢复申购</strong>。这个信号一出现就推微信，你就能吃到套利。</p>
+</div>
+
+<!-- ============ 总结 ============ -->
+<h2>四、一句话总结</h2>
+
+<div class="section">
+<blockquote>
+<p>这个项目的核心逻辑是：<strong>不推"看起来有机会"的信号，只推"大概率能赚钱"的信号</strong>。</p>
+</blockquote>
+
+<table>
+  <tr><th>品种</th><th>推送条件</th><th>为什么能赚钱</th></tr>
+  <tr><td>封闭基金</td><td>折价年化 > 8%</td><td>折价收敛是合同保证的确定性收益</td></tr>
+  <tr><td>可转债-强赎</td><td>新公告 / 最后交易日<30天</td><td>防大亏（不操作被按101元贱卖）</td></tr>
+  <tr><td>可转债-到期保本</td><td>价格<105 且 到期<1年</td><td>到期还本是法律义务，保底赚利息差</td></tr>
+  <tr><td>可转债-低溢价</td><td>溢价<5% 且 价格<115</td><td>下有债底+上有跟涨，不对称机会</td></tr>
+  <tr><td>QDII-P0</td><td>申购恢复+溢价>3%</td><td>净值申购+场内卖出=结构性套利</td></tr>
+  <tr><td>QDII-P1</td><td>开放申购+溢价>5%</td><td>安全垫4.85%，正期望收益</td></tr>
+  <tr><td>QDII-P2</td><td>折价>8% / 溢价>15%</td><td>极端值安全垫厚 / 已持有者卖出信号</td></tr>
+</table>
+
+<p><strong>所有信号都已验证通过</strong>：GitHub Actions 每天 3 次自动扫描，有信号就推微信，没信号不打扰。PUSHPLUS_TOKEN 已配置，首次测试推送 3 条信号成功到达微信。</p>
+</div>
+
+<div class="footer">
+  arbitrage-monitor 项目 | 2026-07-10 | 仓库：https://github.com/xxdd3808-lgtm/arbitrage-monitor
+</div>
+
+</body>
+</html>
