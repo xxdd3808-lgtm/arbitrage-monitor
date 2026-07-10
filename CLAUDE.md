@@ -3,18 +3,16 @@
 ## 项目用途
 
 监控 QDII-LOF 折溢价、可转债、封闭基金的套利机会，通过 PushPlus 微信推送。
-从"发现机会 -> 判断可操作性 -> 推送提醒"全链路辅助低风险投资决策。
-
-**核心定位**：不推没用的信号（普通折价3-5%不赚钱、溢价但申购暂停做不了），只推"可操作的组合信号"。
+**核心定位**：只推"无底仓买入能赚钱的确定性套利"，不推持有者防亏信号、不推投机信号、不推做不了的信号。
 
 ## 架构
 
 ```
-GitHub Actions（A 股交易时段 3 次/天）
+GitHub Actions（A 股交易时段 3 次/天：10:00/12:00/14:00）
   -> notify.py（统一推送入口）
-    -> monitors/qdii_lof.py     QDII-LOF 折溢价 + 申购状态变化
-    -> monitors/sealed_fund.py  封闭基金折价年化
-    -> monitors/convertible_bond.py  可转债强赎/低溢价/到期保本
+    -> monitors/qdii_lof.py          QDII-LOF 折溢价 + 申购状态变化
+    -> monitors/sealed_fund.py       封闭基金折价年化
+    -> monitors/convertible_bond.py  可转债折价转股 + 到期保本
     -> PushPlus 微信推送
     -> state.json 去重（每信号每天最多 1 次）
 
@@ -22,28 +20,26 @@ Streamlit 看板（app.py）- 被动浏览
   -> 3 个 tab：QDII-LOF / 可转债 / 封闭基金
 ```
 
-## 推送信号设计
+## 推送信号设计（6 个确定性套利）
 
-### QDII-LOF
-| 信号 | 条件 | 优先级 |
-|------|------|--------|
-| 申购恢复+溢价 | 申购 暂停->开放 且 溢价>3% | P0 黄金 |
-| 开放申购+持续溢价 | 开放申购 且 溢价>5% | P1 |
-| 极端折价 | 折价>8% | P2 |
-| 极端溢价 | 溢价>15% | P2 |
+所有信号都满足"用户无底仓，买入/申购能赚钱"的前提。
 
-### 可转债
-| 信号 | 条件 | 优先级 |
-|------|------|--------|
-| 新强赎公告 | 强赎状态变为"已公告强赎" | P1 |
-| 强赎最后交易日临近 | 已公告强赎 且 最后交易日<30天 | P1 |
-| 到期保本 | 现价<105 且 到期<365天 | P2 |
-| 低溢价机会 | 溢价<5% 且 现价<115 | P2 |
+| 信号 | 条件 | 操作 | 确定性 | 验证来源 |
+|------|------|------|--------|----------|
+| 可转债折价转股 | 溢价<-1% | 买入转债->转股->次日卖股 | ⭐⭐⭐⭐ | BigQuant研报：转股期内溢价<-0.5%胜率100% |
+| 可转债到期保本 | YTM>5%+到期<1年 | 买入持有到期 | ⭐⭐⭐⭐⭐ | 到期还本是法律义务 |
+| 封基折价年化 | 年化>8% | 买入持有到期 | ⭐⭐⭐⭐⭐ | 折价收敛是合同保证 |
+| QDII P0 | 申购恢复+溢价>3% | 申购->T+2卖出 | ⭐⭐⭐ | 集思录实战：华宝油气7-10%溢价套利 |
+| QDII P1 | 开放申购+溢价>5% | 申购->T+2卖出 | ⭐⭐⭐⭐ | 同上 |
+| QDII P2 | 折价>8% | 买入+赎回 | ⭐⭐⭐⭐ | 回测验证（大折价极罕见） |
 
-### 封闭基金
-| 信号 | 条件 | 优先级 |
-|------|------|--------|
-| 折价年化高 | 折价年化>8% | P1 |
+### 不推的信号（已删除）
+- ❌ 可转债新强赎公告（持有者防亏，无底仓没用）
+- ❌ 可转债强赎最后交易日临近（同上）
+- ❌ 可转债低溢价<5%（投机，不是确定性套利）
+- ❌ QDII 极端溢价>15%（已持有者卖出信号，无底仓没用）
+- ❌ 普通折价3-5%（回测证明T+0赎回不赚钱）
+- ❌ 溢价5-8%但申购暂停（做不了）
 
 ## 文件结构
 
@@ -52,32 +48,41 @@ Streamlit 看板（app.py）- 被动浏览
 | `app.py` | Streamlit 看板（3 tab） |
 | `notify.py` | 统一推送入口，调各 monitor 的 check() |
 | `monitors/base.py` | 公共工具：Sina实时价/天天基金估值/akshare净值/PushPlus/状态管理 |
-| `monitors/qdii_lof.py` | QDII-LOF 折溢价 + 申购状态监控 |
+| `monitors/qdii_lof.py` | QDII-LOF 折溢价 + 申购状态监控（P0/P1/P2） |
 | `monitors/sealed_fund.py` | 封闭基金折价年化 |
-| `monitors/convertible_bond.py` | 可转债多信号 |
+| `monitors/convertible_bond.py` | 可转债折价转股 + 到期保本 |
 | `config.json` | 监控列表 + 阈值 + 申购赎回状态预设 |
 | `state.json` | 推送去重状态 |
 | `.github/workflows/check.yml` | GitHub Actions 定时触发 |
+| `REPORT.html` | 大白话总结报告 |
 
 ## 数据源
 
 | 数据 | 源 | 接口 |
 |------|----|------|
-| 实时价格 | Sina | `hq.sinajs.cn/list=sz162411` |
+| 实时价格 | Sina | `hq.sinajs.cn/list=sz{code}` |
 | 实时估值(IOPV) | 天天基金 | `fundgz.1234567.com.cn/js/{code}.js` |
 | 净值历史 | akshare | `fund_open_fund_info_em` |
-| 可转债强赎 | akshare(集思录) | `bond_cb_redeem_jsl` |
-| 申购赎回状态 | config.json 预设 | 手动维护 |
+| 可转债全面数据(320只) | akshare(集思录) | `bond_cb_redeem_jsl`（含到期日/强赎状态/转股价） |
+| 可转债精确YTM(30只) | akshare(集思录) | `bond_cb_jsl`（含"到期税前收益"字段） |
+| 申购赎回状态 | config.json 预设 | 手动维护 + state.json 对比检测变化 |
 
-**关键发现**：天天基金实时估值 API 对 QDII 油气股类 LOF 有效（华宝油气/广发石油），但对原油期货类 LOF 无数据（南方/嘉实/易方达原油）。后者用 settled 折溢价（场内价/最新净值-1），有滞后但可用。
+**关键发现**：
+- 天天基金实时估值对 QDII 油气股类有效（华宝油气/广发石油），对原油期货类无数据（南方/嘉实/易方达原油用 settled 折溢价）
+- `bond_cb_jsl` 只有 30 只（集思录筛选），但有精确 YTM；`bond_cb_redeem_jsl` 320 只全面但无 YTM。两者配合：精确YTM优先，其余用(106-现价)/现价/剩余年限估算
 
 ## 重要约束
 
 1. **PUSHPLUS_TOKEN 不硬编码**：通过 GitHub Secrets 传入
-2. **申购赎回状态用 config.json 预设**：自动 API 检测不可靠（东财移动 API 全 404），用 config.json 手动维护 + state.json 对比检测变化
+2. **申购赎回状态用 config.json 预设**：东财移动 API 全 404 不可靠，手动维护 + state.json 对比检测变化
 3. **每信号每天最多推 1 次**：state.json 按日期去重
-4. **不推无操作价值的信号**：普通折价3-5%（回测证明不赚钱）、普通溢价5-8%但申购暂停（做不了）
-5. **可转债用 bond_cb_redeem_jsl**：集思录数据最全，含强赎状态/最后交易日/到期日
+4. **可转债折价转股必须过滤异常**：
+   - 排除退市转债（代码 4 开头）
+   - 排除极端负溢价（<-10%，数据异常，如华峰转债-33.4%）
+   - 排除转股价值<50（正股暴跌废债，如汇车退债）
+5. **YTM 计算双源**：优先用 bond_cb_jsl 精确值，fallback 到 (106-现价)/现价/剩余年限估算
+6. **只推无底仓能做的信号**：不推持有者防亏、不推投机、不推申购暂停时的溢价
+7. **华宝油气状态是"限额10元"不是"暂停申购"**：2026-03起限额10元/天（基本等于暂停），等限额恢复触发 P0
 
 ## 常用命令
 
@@ -87,8 +92,11 @@ cd /Users/bt/arbitrage-monitor
 pip install -r requirements.txt
 streamlit run app.py
 
-# 手动触发推送检查
+# 手动扫描+推送（需设 PUSHPLUS_TOKEN 环境变量）
 python notify.py
+
+# 带 token 本地测试
+PUSHPLUS_TOKEN="你的token" python notify.py
 
 # 手动触发 GitHub Actions
 gh workflow run check.yml -R xxdd3808-lgtm/arbitrage-monitor
@@ -99,19 +107,26 @@ gh run list -R xxdd3808-lgtm/arbitrage-monitor --limit 5
 
 ## 配置 PUSHPLUS_TOKEN
 
-1. 去 [pushplus.plus](https://www.pushplus.plus/) 注册，获取 token
-2. GitHub 仓库 Settings -> Secrets and variables -> Actions -> New repository secret
-   - Name: `PUSHPLUS_TOKEN`
-   - Value: 你的 token
-3. 或用命令行：`gh secret set PUSHPLUS_TOKEN -R xxdd3808-lgtm/arbitrage-monitor`
+已配置在 GitHub Secrets（2026-07-10）。如需更换：
+```bash
+gh secret set PUSHPLUS_TOKEN -R xxdd3808-lgtm/arbitrage-monitor
+```
 
 ## 变更历史
 
-### 2026-07-10 初版（从 lof-monitor 升级）
+### 2026-07-10 信号精简为6个确定性套利（commit `2446820`）
 
-- 新建 arbitrage-monitor 仓库，从单品种(华宝油气)升级为多品种
-- QDII-LOF：5只监控，P0/P1/P2 组合信号，Sina实时价+天天基金估值
-- 可转债：bond_cb_redeem_jsl 数据源，4类信号（强赎/最后交易日/到期保本/低溢价）
-- 封闭基金：折价年化公式，config 预设列表
-- 推送逻辑改为"组合信号"（申购恢复+溢价、开放+溢价），不再推无操作价值的单独信号
-- 数据源改用 Sina+天天基金，不依赖 yfinance（本地和 GitHub Actions 均稳定）
+基于网络调研验证（BigQuant研报+集思录实战+知乎CFA专栏）和用户反馈（"没底仓，只推买入能赚钱的"），大改：
+
+- **可转债**：删掉4个旧信号（强赎/最后交易日/低溢价/到期保本粗判），改为2个确定性套利（折价转股溢价<-1% + 到期保本YTM>5%）。YTM 用 bond_cb_jsl 精确值+bond_cb_redeem_jsl 估算 fallback
+- **QDII**：删掉 P2 极端溢价>15%（已持有者卖出信号）。config 修正华宝油气状态为"限额10元"
+- **封基**：推送文案加流动性风险提示
+- **过滤**：折价转股加极端负溢价(<-10%)+退市(4开头)+转股价值<50 三重过滤
+- **验证**：6个信号全部有研报/实战案例支撑，测试推送正川转债(-1.2%)成功
+
+### 2026-07-10 初版（commit `7512a88`）
+
+- 新建 arbitrage-monitor 仓库，从 lof-monitor 单品种升级为多品种
+- QDII-LOF 5只 + 可转债 320只 + 封闭基金
+- 数据源改用 Sina+天天基金，不依赖 yfinance
+- GitHub Actions 定时扫描 + PushPlus 推送 + state.json 去重
