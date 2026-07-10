@@ -165,10 +165,10 @@ with tab2:
         cb_df["距到期(天)"] = cb_df["到期日"].apply(cb_mod.days_to)
         cb_df["代码"] = cb_df["代码"].astype(str)
 
-        # 信号1: 折价转股套利（溢价 < -1%）
+        # 信号1: 折价转股套利（参考信号，不推送 -- 散户隔夜风险太大）
         st.markdown("---")
-        st.subheader(f"📈 折价转股套利（溢价 < {discount_threshold*100:.0f}%）")
-        st.caption("操作: 买入转债->当日转股->次日卖股 | ⚠️ 隔夜风险")
+        st.subheader(f"📈 折价转股参考（溢价 < {discount_threshold*100:.0f}%）")
+        st.caption("⚠️ 参考信号，不推送。散户只能单向赌隔夜，安全垫薄。需自行判断正股波动。成本约0.35%（佣金+印花税+转股损耗）")
         disc_mask = (
             (cb_df["溢价率"].notna())
             & (cb_df["溢价率"] <= discount_threshold)
@@ -176,13 +176,43 @@ with tab2:
             & (~cb_df["代码"].str.startswith("4"))  # 排除退市
             & (cb_df["转股价值"] >= 50)  # 排除废债
         )
-        disc_filtered = cb_df[disc_mask]
+        disc_filtered = cb_df[disc_mask].sort_values("溢价率").head(10)
+
         if len(disc_filtered) > 0:
-            show = disc_filtered[["代码", "名称", "现价", "转股价值", "溢价率", "正股价", "转股价"]].copy()
+            # 拉正股近5日振幅（仅前10只，避免过多API请求）
+            @st.cache_data(ttl=300, show_spinner=False)
+            def fetch_stock_amplitude(stock_codes):
+                """批量获取正股近5日平均振幅%"""
+                import akshare as ak
+                result = {}
+                for sc in stock_codes:
+                    try:
+                        hist = ak.stock_zh_a_hist(symbol=sc, period="daily", adjust="")
+                        if hist is not None and len(hist) >= 2:
+                            amp_col = "振幅" if "振幅" in hist.columns else None
+                            if amp_col:
+                                result[sc] = float(hist[amp_col].tail(5).mean())
+                    except Exception:
+                        pass
+                return result
+
+            stock_codes = disc_filtered["正股代码"].astype(str).tolist()
+            with st.spinner("拉取正股波动率..."):
+                amp_map = fetch_stock_amplitude(stock_codes)
+
+            show = disc_filtered[["代码", "名称", "现价", "溢价率", "正股代码", "正股价", "转股价"]].copy()
+            show["正股5日振幅%"] = show["正股代码"].astype(str).map(amp_map)
+            # 实际安全垫 = |折价| - 成本0.35% - 正股振幅
+            show["实际安全垫%"] = show.apply(
+                lambda r: round(abs(r["溢价率"])*100 - 0.35 - (r["正股5日振幅%"] or 0), 2)
+                if r["正股5日振幅%"] is not None else None, axis=1
+            )
             show["溢价率"] = show["溢价率"].apply(lambda x: f"{x*100:.1f}%")
-            show["转股价值"] = show["转股价值"].apply(lambda x: f"{x:.1f}")
-            show = show.sort_values("溢价率")
-            st.dataframe(show.head(20), use_container_width=True, hide_index=True)
+            show["正股5日振幅%"] = show["正股5日振幅%"].apply(lambda x: f"{x:.1f}%" if x is not None else "N/A")
+            show["实际安全垫%"] = show["实际安全垫%"].apply(lambda x: f"{x:+.2f}%" if x is not None else "N/A")
+            show = show.drop(columns=["正股代码"])
+            st.dataframe(show, use_container_width=True, hide_index=True)
+            st.caption("💡 实际安全垫>0 才值得做（折价能覆盖成本+正股波动）。安全垫<0 = 波动会吃掉利润")
         else:
             st.write("（暂无）")
 

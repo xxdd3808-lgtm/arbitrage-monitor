@@ -1,15 +1,15 @@
 """可转债确定性套利监控（只推买入能赚钱的信号）
 
-信号（只保留确定性套利，删掉持有者防亏/投机信号）：
-1. 折价转股套利：转股溢价率 < -1%
-   操作：买入转债 -> 当日转股 -> 次日卖出股票
-   收益：|折价率| - 卖出佣金 - 隔夜风险
-   研报验证：BigQuant研报显示转股期内溢价<-0.5%胜率100%（融券对冲），散户买入转股方式有隔夜风险
+推送信号：
+- 到期保本套利：YTM > 5% 且 到期 < 1年
+  操作：买入持有到期
+  收益：(到期赎回价 - 现价) / 现价，年化
+  确定性：到期还本是法律义务，AA+以上违约概率<0.1%
 
-2. 到期保本套利：YTM > 5% 且 到期 < 1年
-   操作：买入持有到期
-   收益：(到期赎回价 - 现价) / 现价，年化
-   确定性：到期还本是法律义务，AA+以上违约概率<0.1%
+注意：折价转股套利（溢价<-1%）已降级为看板参考信号，不推送。
+原因：散户只能单向赌隔夜（买入转债->转股->次日卖股），1-2%安全垫
+覆盖不了正股日常波动，叠加强赎期踩踏，期望收益为负。
+看板(app.py)仍显示折价转债供用户自行判断，并展示正股波动率辅助决策。
 
 数据源：
 - bond_cb_redeem_jsl (320只，全面扫描)
@@ -108,7 +108,6 @@ def check(config, state):
 
     print(f"  bond_cb_redeem_jsl: {len(df)} 只转债")
 
-    discount_opps = []
     maturity_opps = []
 
     for _, row in df.iterrows():
@@ -130,23 +129,8 @@ def check(config, state):
         if code.startswith("4"):
             continue
 
-        conv_value = calc_conversion_value(stock_price, conv_price)
-
-        # 信号1: 折价转股套利（溢价 < -1%，但排除极端负溢价<-10%的数据异常）
-        premium = calc_conversion_premium(price, stock_price, conv_price)
-        if (premium is not None and premium <= discount_premium_threshold
-                and premium >= -0.10  # 排除极端负溢价（数据异常）
-                and conv_value is not None and conv_value >= 50):  # 排除正股暴跌废债
-            disc_key = f"{code}_cb_discount_arb"
-            if not base.already_notified(state, disc_key):
-                discount_opps.append(
-                    f"  {name}({code}) 现价{price:.2f} 溢价{premium*100:.1f}% | "
-                    f"正股{stock_price} 转股价{conv_price} 转股价值{conv_value:.1f}\n"
-                    f"    操作: 买入转债->当日转股->次日卖股 | 收益≈{abs(premium)*100:.1f}%"
-                )
-                base.mark_notified(state, disc_key, {"premium": f"{premium*100:.1f}%"})
-
-        # 信号2: 到期保本套利（YTM > 5% 且 到期 < 1年）
+        # 信号: 到期保本套利（YTM > 5% 且 到期 < 1年）
+        # 注：折价转股套利已降级为看板参考，不推送（散户隔夜风险太大）
         mat_days = days_to(maturity_date)
         if mat_days and 0 < mat_days <= maturity_days_max:
             exact_ytm = jsl_ytm_map.get(code)
@@ -162,12 +146,6 @@ def check(config, state):
                     )
                     base.mark_notified(state, mat_key, {"ytm": f"{ytm*100:.1f}%"})
 
-    if discount_opps:
-        alerts.append(
-            "📈【折价转股套利】（买入转债+转股+次日卖股）\n"
-            + "\n".join(discount_opps[:10])
-            + "\n  ⚠️ 风险: 转股次日股票开盘可能低开，溢价<-2%安全垫更厚"
-        )
     if maturity_opps:
         alerts.append(
             "💰【到期保本套利】（买入持有到期）\n"
