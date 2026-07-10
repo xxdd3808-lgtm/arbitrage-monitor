@@ -246,6 +246,38 @@ with tab2:
         else:
             st.write("（暂无）")
 
+        # 信号3: 回售参考（不推送，看板参考）
+        st.markdown("---")
+        st.subheader("🔙 回售参考（不推送）")
+        st.caption("⚠️ 参考信号，不推送。回售价=100+应计利息（非固定103），需连续30天满足，公司可能下修消除回售。变量多，非确定性套利")
+        pb_mask = (
+            (cb_df["距到期(天)"].notna())
+            & (cb_df["距到期(天)"] > 0)
+            & (cb_df["距到期(天)"] <= 730)  # 最后2年
+            & (~cb_df["代码"].str.startswith("4"))
+        )
+        pb_filtered = cb_df[pb_mask].copy()
+        if len(pb_filtered) > 0:
+            # 算回售触发价 = 转股价 × 70%
+            pb_filtered["回售触发价"] = pb_filtered.apply(
+                lambda r: float(r["转股价"]) * 0.7 if r.get("转股价") and float(r.get("转股价", 0)) > 0 else None, axis=1
+            )
+            # 正股是否低于触发价
+            pb_filtered["正股价"] = pb_filtered["正股价"].astype(float)
+            pb_filtered["跌破触发价"] = pb_filtered["正股价"] < pb_filtered["回售触发价"]
+            # 只显示正股已跌破触发价的
+            pb_show = pb_filtered[pb_filtered["跌破触发价"]].copy()
+            if len(pb_show) > 0:
+                pb_show["距回售差价"] = pb_show["回售触发价"] - pb_show["正股价"]
+                pb_show = pb_show[["代码", "名称", "现价", "正股价", "回售触发价", "距回售差价", "距到期(天)"]].copy()
+                pb_show = pb_show.sort_values("距回售差价", ascending=False)
+                st.dataframe(pb_show.head(15), use_container_width=True, hide_index=True)
+                st.caption("💡 跌破触发价≠触发回售（需连续30天）。回售价≈100+应计利息。注意公司可能下修转股价消除回售。需自行查公告确认")
+            else:
+                st.write("（暂无正股跌破回售触发价的转债）")
+        else:
+            st.write("（暂无最后2年期的转债）")
+
 
 # ---------- Tab 3: 封闭基金 ----------
 with tab3:

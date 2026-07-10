@@ -6,10 +6,10 @@
   收益：(到期赎回价 - 现价) / 现价，年化
   确定性：到期还本是法律义务，AA+以上违约概率<0.1%
 
-注意：折价转股套利（溢价<-1%）已降级为看板参考信号，不推送。
-原因：散户只能单向赌隔夜（买入转债->转股->次日卖股），1-2%安全垫
-覆盖不了正股日常波动，叠加强赎期踩踏，期望收益为负。
-看板(app.py)仍显示折价转债供用户自行判断，并展示正股波动率辅助决策。
+注意：以下信号已降级为看板参考，不推送：
+- 折价转股套利（溢价<-1%）：散户隔夜风险太大，安全垫覆盖不了正股波动
+- 回售套利（正股<转股价70%+转债<103）：回售价不是固定103（=100+应计利息），
+  连续30天条件难验证，公司可能下修消除回售。变量太多，非确定性套利
 
 数据源：
 - bond_cb_redeem_jsl (320只，全面扫描)
@@ -109,7 +109,6 @@ def check(config, state):
     print(f"  bond_cb_redeem_jsl: {len(df)} 只转债")
 
     maturity_opps = []
-    putback_opps = []
 
     for _, row in df.iterrows():
         code = str(row.get("代码", "")).strip()
@@ -130,7 +129,8 @@ def check(config, state):
         if code.startswith("4"):
             continue
 
-        # 信号1: 到期保本套利（YTM > 5% 且 到期 < 1年）
+        # 信号: 到期保本套利（YTM > 5% 且 到期 < 1年）
+        # 注：折价转股和回售套利已降级为看板参考，不推送
         mat_days = days_to(maturity_date)
         if mat_days and 0 < mat_days <= maturity_days_max:
             exact_ytm = jsl_ytm_map.get(code)
@@ -146,38 +146,11 @@ def check(config, state):
                     )
                     base.mark_notified(state, mat_key, {"ytm": f"{ytm*100:.1f}%"})
 
-        # 信号2: 回售套利（最后2年 + 正股<转股价70% + 转债价格<103）
-        # 回售触发价 = 转股价 × 70%，回售价通常103元
-        if mat_days is not None and 0 < mat_days <= 730:  # 最后2年
-            try:
-                conv_price_f = float(conv_price) if conv_price else 0
-                stock_price_f = float(stock_price) if stock_price else 0
-            except (TypeError, ValueError):
-                conv_price_f = 0
-                stock_price_f = 0
-            if conv_price_f > 0 and stock_price_f > 0:
-                putback_trigger = conv_price_f * 0.7
-                if stock_price_f < putback_trigger and price < 103:
-                    pb_key = f"{code}_cb_putback"
-                    if not base.already_notified(state, pb_key):
-                        putback_opps.append(
-                            f"  {name}({code}) 现价{price:.2f} | 正股{stock_price_f:.2f} "
-                            f"< 回售触发价{putback_trigger:.2f}（转股价{conv_price_f:.2f}×70%）\n"
-                            f"    操作: 买入回售赚差价 | 回售价约¥103 | 或博弈公司下修拉升"
-                        )
-                        base.mark_notified(state, pb_key, {"price": f"{price:.2f}"})
-
     if maturity_opps:
         alerts.append(
             "💰【到期保本套利】（买入持有到期）\n"
             + "\n".join(maturity_opps[:10])
             + "\n  ✅ 确定性: 到期还本是法律义务，AA+以上违约概率<0.1%"
-        )
-    if putback_opps:
-        alerts.append(
-            "🔙【回售套利】（最后2年+正股<转股价70%+转债<103）\n"
-            + "\n".join(putback_opps[:10])
-            + "\n  ✅ 确定性: 回售是投资者权利，公司必须履行 | 回售价约¥103"
         )
 
     return alerts
