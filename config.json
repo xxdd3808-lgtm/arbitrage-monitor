@@ -1,0 +1,65 @@
+{
+  "qdii_lof": [
+    {
+      "code": "162411",
+      "name": "华宝油气",
+      "buy_status": "暂停申购",
+      "redeem_status": "开放赎回",
+      "premium_threshold": 0.05,
+      "discount_threshold": 0.08,
+      "note": "跟踪SPSIOP油气股，常年暂停申购。等P0黄金窗口"
+    },
+    {
+      "code": "162719",
+      "name": "广发石油",
+      "buy_status": "暂停申购",
+      "redeem_status": "开放赎回",
+      "premium_threshold": 0.05,
+      "discount_threshold": 0.08,
+      "note": "跟踪道琼斯石油指数"
+    },
+    {
+      "code": "501018",
+      "name": "南方原油",
+      "buy_status": "暂停申购",
+      "redeem_status": "开放赎回",
+      "premium_threshold": 0.05,
+      "discount_threshold": 0.08,
+      "note": "跟踪WTI原油"
+    },
+    {
+      "code": "160723",
+      "name": "嘉实原油",
+      "buy_status": "暂停申购",
+      "redeem_status": "开放赎回",
+      "premium_threshold": 0.05,
+      "discount_threshold": 0.08,
+      "note": "跟踪布伦特原油"
+    },
+    {
+      "code": "161129",
+      "name": "易方达原油",
+      "buy_status": "暂停申购",
+      "redeem_status": "开放赎回",
+      "premium_threshold": 0.05,
+      "discount_threshold": 0.08,
+      "note": "跟踪WTI原油"
+    }
+  ],
+  "sealed_fund": [
+    {
+      "code": "501050",
+      "name": "华夏央调ETF联接A",
+      "maturity_date": "2027-06-15",
+      "note": "示例-需核实实际到期日"
+    }
+  ],
+  "sealed_fund_threshold": 0.08,
+  "convertible_bond": {
+    "redeem_alert_days": 30,
+    "low_premium": 0.05,
+    "low_premium_price_max": 115,
+    "maturity_price_max": 105,
+    "maturity_days": 365
+  }
+}

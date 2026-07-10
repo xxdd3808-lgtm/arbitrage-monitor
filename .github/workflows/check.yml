@@ -1,0 +1,49 @@
+name: 套利机会扫描
+
+on:
+  schedule:
+    # A 股交易时段检查（北京时间 9:30-15:00 = UTC 1:30-7:00）
+    - cron: '0 2 * * 1-5'     # UTC 02:00 = 北京 10:00
+    - cron: '0 4 * * 1-5'     # UTC 04:00 = 北京 12:00
+    - cron: '0 6 * * 1-5'     # UTC 06:00 = 北京 14:00
+  workflow_dispatch:
+
+concurrency:
+  group: arbitrage-check
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install akshare requests
+
+      - name: 扫描套利机会并推送
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+        run: python notify.py
+
+      - name: 提交 state.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! git diff --quiet state.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "update state $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            git push
+          else
+            echo "[INFO] state.json 无变化，跳过提交"
+          fi
