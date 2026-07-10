@@ -71,7 +71,8 @@ def check(config, state):
                     f"📊 封基 {name}({code}) 折价年化 {ann_str}\n"
                     f"  价格¥{price:.4f} 净值¥{nav:.4f}({nav_date})\n"
                     f"  折价 {discount_str} | 到期 {maturity}\n"
-                    f"  -> 持有到期预计年化 {ann_str}（折价收敛+期间净值波动风险）"
+                    f"  -> 买入持有到期，折价收敛是合同保证的确定性收益\n"
+                    f"  ⚠️ 注意: 部分封基成交额低（日<百万），注意流动性风险，建议分散持有"
                 )
                 base.mark_notified(state, key, {"annualized": ann_str})
 

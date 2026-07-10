@@ -110,23 +110,15 @@ def check(config, state):
                 )
                 base.mark_notified(state, p1_key, {"premium": premium_str})
 
-        # P2 信号：极端折价（>8%）或极端溢价（>15%）
+        # P2 信号：极端折价（>8%）-- 买入+赎回套利，安全垫厚
+        # 注：极端溢价(>15%)是已持有者卖出信号，用户无底仓不推
         if premium <= -discount_threshold_p2:
             p2_key = f"{code}_qdii_p2_discount"
             if not base.already_notified(state, p2_key):
                 alerts.append(
                     f"🔵 P2 {name}({code}) 极端折价 {premium_str}\n"
                     f"  价格¥{price:.4f} IOPV¥{iopv:.4f}({iopv_source})\n"
-                    f"  赎回:{curr_redeem} -> 如开放赎回，买入+赎回有安全垫"
-                )
-                base.mark_notified(state, p2_key, {"premium": premium_str})
-        elif premium >= 0.15:
-            p2_key = f"{code}_qdii_p2_premium_extreme"
-            if not base.already_notified(state, p2_key):
-                alerts.append(
-                    f"🔴 P2 {name}({code}) 极端溢价 {premium_str}\n"
-                    f"  价格¥{price:.4f} IOPV¥{iopv:.4f}({iopv_source})\n"
-                    f"  -> 已持有者极端卖出信号"
+                    f"  赎回:{curr_redeem} -> 如开放赎回，买入+赎回安全垫{abs(premium)*100-1.5:.1f}%"
                 )
                 base.mark_notified(state, p2_key, {"premium": premium_str})
 

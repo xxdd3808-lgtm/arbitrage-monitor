@@ -1,6 +1,6 @@
 {
   "162411_qdii_buy_status": {
-    "status": "暂停申购",
+    "status": "限额10元",
     "date": "2026-07-10"
   },
   "162719_qdii_buy_status": {
@@ -19,84 +19,8 @@
     "status": "暂停申购",
     "date": "2026-07-10"
   },
-  "113632_cb_redeemed": {
-    "notified": true,
+  "113624_cb_discount_arb": {
     "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "113632_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 10
-  },
-  "123251_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "123251_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 12
-  },
-  "128121_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "128121_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 2
-  },
-  "113037_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "113037_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 6
-  },
-  "110073_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "110073_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 9
-  },
-  "128124_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "128124_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 11
-  },
-  "113597_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "113597_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 13
-  },
-  "128125_cb_redeemed": {
-    "notified": true,
-    "date": "2026-07-10",
-    "status": "已公告强赎"
-  },
-  "128125_cb_redeem_urgent": {
-    "date": "2026-07-10",
-    "days": 13
-  },
-  "110081_cb_low_premium": {
-    "date": "2026-07-10",
-    "premium": "-0.4%"
-  },
-  "118027_cb_low_premium": {
-    "date": "2026-07-10",
-    "premium": "3.6%"
+    "premium": "-1.2%"
   }
 }

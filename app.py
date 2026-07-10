@@ -19,6 +19,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from monitors import base
 from monitors import sealed_fund as sf_mod
+from monitors import convertible_bond as cb_mod
 
 st.set_page_config(page_title="套利机会监控", page_icon="📊", layout="wide")
 st.title("📊 多品种套利机会监控")
@@ -109,74 +110,109 @@ with tab1:
 
 # ---------- Tab 2: 可转债 ----------
 with tab2:
-    st.subheader("可转债扫描")
-    st.caption("数据源：akshare bond_cb_redeem_jsl（集思录）")
+    st.subheader("可转债确定性套利扫描")
+    st.caption("只显示买入能赚钱的机会：折价转股套利 + 到期保本套利")
 
     cb_config = CONFIG.get("convertible_bond", {})
+    ytm_threshold = cb_config.get("ytm_threshold", 0.05)
+    discount_threshold = cb_config.get("discount_premium", -0.01)
+    mat_days_max = cb_config.get("maturity_days", 365)
 
     @st.cache_data(ttl=300, show_spinner=False)
     def fetch_cb_data():
+        import akshare as ak
+        dfs = {}
         try:
-            df = ak.bond_cb_redeem_jsl()
-            return df
-        except Exception as e:
-            st.error(f"数据获取失败: {e}")
-            return None
+            dfs["redeem"] = ak.bond_cb_redeem_jsl()
+        except Exception:
+            pass
+        try:
+            dfs["jsl"] = ak.bond_cb_jsl()
+        except Exception:
+            pass
+        return dfs
 
     with st.spinner("拉取可转债数据..."):
-        cb_df = fetch_cb_data()
+        cb_dfs = fetch_cb_data()
+
+    cb_df = cb_dfs.get("redeem")
+    jsl_df = cb_dfs.get("jsl")
 
     if cb_df is not None and len(cb_df) > 0:
         st.metric("可转债总数", len(cb_df))
 
-        # 强赎中的转债
-        st.markdown("---")
-        st.subheader("⚠️ 强赎中（已公告强赎）")
-        redeemed = cb_df[cb_df["强赎状态"].astype(str).str.contains("已公告", na=False)].copy()
-        if len(redeemed) > 0:
-            redeemed["距最后交易日(天)"] = redeemed["最后交易日"].apply(
-                lambda x: sf_mod.days_to(x) if x else None
-            )
-            show = redeemed[["代码", "名称", "现价", "最后交易日", "距最后交易日(天)", "强赎状态"]].copy()
-            show = show.sort_values("距最后交易日(天)")
-            st.dataframe(show, use_container_width=True, hide_index=True)
-        else:
-            st.write("（暂无）")
+        # 构建精确YTM映射（bond_cb_jsl 30只）
+        jsl_ytm_map = {}
+        if jsl_df is not None:
+            for _, row in jsl_df.iterrows():
+                code = str(row.get("代码", "")).strip()
+                ytm_raw = row.get("到期税前收益")
+                try:
+                    ytm = float(ytm_raw) / 100 if ytm_raw is not None else None
+                    if code and ytm is not None and -0.5 < ytm < 0.5:
+                        jsl_ytm_map[code] = ytm
+                except (TypeError, ValueError):
+                    pass
 
-        # 低溢价+低价
-        st.markdown("---")
-        st.subheader(f"📈 低溢价机会（溢价<{cb_config.get('low_premium',0.05)*100:.0f}% 且 价格<{cb_config.get('low_premium_price_max',115)}）")
-        low_pm = cb_df.copy()
-        # 计算溢价率（如果没有直接字段）
-        low_pm["计算溢价率"] = low_pm.apply(
-            lambda r: sf_mod.calc_conversion_premium(
-                r.get("现价"), r.get("正股价"), r.get("转股价")
-            ), axis=1
+        # 计算溢价率和转股价值
+        cb_df = cb_df.copy()
+        cb_df["转股价值"] = cb_df.apply(
+            lambda r: cb_mod.calc_conversion_value(r.get("正股价"), r.get("转股价")), axis=1
         )
-        lp_threshold = cb_config.get("low_premium", 0.05)
-        lp_price_max = cb_config.get("low_premium_price_max", 115)
-        mask = (low_pm["计算溢价率"] <= lp_threshold) & (low_pm["现价"] <= lp_price_max) & (low_pm["计算溢价率"].notna())
-        filtered = low_pm[mask & ~low_pm["强赎状态"].astype(str).str.contains("已公告", na=False)]
-        if len(filtered) > 0:
-            show = filtered[["代码", "名称", "现价", "正股价", "转股价", "计算溢价率", "强赎状态"]].copy()
-            show["计算溢价率"] = show["计算溢价率"].apply(lambda x: f"{x*100:.1f}%")
-            show = show.sort_values("现价")
+        cb_df["溢价率"] = cb_df.apply(
+            lambda r: cb_mod.calc_conversion_premium(r.get("现价"), r.get("正股价"), r.get("转股价")), axis=1
+        )
+        cb_df["距到期(天)"] = cb_df["到期日"].apply(cb_mod.days_to)
+        cb_df["代码"] = cb_df["代码"].astype(str)
+
+        # 信号1: 折价转股套利（溢价 < -1%）
+        st.markdown("---")
+        st.subheader(f"📈 折价转股套利（溢价 < {discount_threshold*100:.0f}%）")
+        st.caption("操作: 买入转债->当日转股->次日卖股 | ⚠️ 隔夜风险")
+        disc_mask = (
+            (cb_df["溢价率"].notna())
+            & (cb_df["溢价率"] <= discount_threshold)
+            & (cb_df["溢价率"] >= -0.10)  # 排除极端负溢价（数据异常）
+            & (~cb_df["代码"].str.startswith("4"))  # 排除退市
+            & (cb_df["转股价值"] >= 50)  # 排除废债
+        )
+        disc_filtered = cb_df[disc_mask]
+        if len(disc_filtered) > 0:
+            show = disc_filtered[["代码", "名称", "现价", "转股价值", "溢价率", "正股价", "转股价"]].copy()
+            show["溢价率"] = show["溢价率"].apply(lambda x: f"{x*100:.1f}%")
+            show["转股价值"] = show["转股价值"].apply(lambda x: f"{x:.1f}")
+            show = show.sort_values("溢价率")
             st.dataframe(show.head(20), use_container_width=True, hide_index=True)
         else:
             st.write("（暂无）")
 
-        # 到期保本
+        # 信号2: 到期保本套利（YTM > 5% 且 到期 < 1年）
         st.markdown("---")
-        st.subheader(f"💰 到期保本（价格<{cb_config.get('maturity_price_max',105)} 且 剩余<{cb_config.get('maturity_days',365)}天）")
-        mat_price_max = cb_config.get("maturity_price_max", 105)
-        mat_days_max = cb_config.get("maturity_days", 365)
-        cb_df["距到期(天)"] = cb_df["到期日"].apply(lambda x: sf_mod.days_to(x) if x else None)
-        mat_mask = (cb_df["现价"] <= mat_price_max) & (cb_df["距到期(天)"].notna()) & (cb_df["距到期(天)"] > 0) & (cb_df["距到期(天)"] <= mat_days_max)
-        mat_filtered = cb_df[mat_mask]
+        st.subheader(f"💰 到期保本套利（YTM > {ytm_threshold*100:.0f}% 且 到期 < {mat_days_max}天）")
+        st.caption("操作: 买入持有到期 | ✅ 到期还本是法律义务，确定性高")
+        mat_mask = (
+            (cb_df["距到期(天)"].notna())
+            & (cb_df["距到期(天)"] > 0)
+            & (cb_df["距到期(天)"] <= mat_days_max)
+            & (~cb_df["代码"].str.startswith("4"))
+        )
+        mat_filtered = cb_df[mat_mask].copy()
         if len(mat_filtered) > 0:
-            show = mat_filtered[["代码", "名称", "现价", "到期日", "距到期(天)"]].copy()
-            show = show.sort_values("距到期(天)")
-            st.dataframe(show.head(20), use_container_width=True, hide_index=True)
+            # 计算YTM
+            mat_filtered["精确YTM"] = mat_filtered["代码"].map(jsl_ytm_map)
+            mat_filtered["YTM"] = mat_filtered.apply(
+                lambda r: cb_mod.calc_ytm(r["现价"], r["到期日"], r.get("精确YTM")), axis=1
+            )
+            mat_filtered["YTM来源"] = mat_filtered["精确YTM"].apply(lambda x: "精确" if x is not None else "估算")
+            ytm_mask = (mat_filtered["YTM"].notna()) & (mat_filtered["YTM"] >= ytm_threshold) & (mat_filtered["现价"] < 106)
+            ytm_filtered = mat_filtered[ytm_mask]
+            if len(ytm_filtered) > 0:
+                show = ytm_filtered[["代码", "名称", "现价", "到期日", "距到期(天)", "YTM", "YTM来源"]].copy()
+                show["YTM"] = show["YTM"].apply(lambda x: f"{x*100:.1f}%")
+                show = show.sort_values("YTM", ascending=False)
+                st.dataframe(show.head(20), use_container_width=True, hide_index=True)
+            else:
+                st.write("（暂无）")
         else:
             st.write("（暂无）")
 

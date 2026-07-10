@@ -3,11 +3,11 @@
     {
       "code": "162411",
       "name": "华宝油气",
-      "buy_status": "暂停申购",
+      "buy_status": "限额10元",
       "redeem_status": "开放赎回",
       "premium_threshold": 0.05,
       "discount_threshold": 0.08,
-      "note": "跟踪SPSIOP油气股，常年暂停申购。等P0黄金窗口"
+      "note": "跟踪SPSIOP油气股。2026-03起限额10元/天（基本等于暂停）。等限额恢复或开放申购"
     },
     {
       "code": "162719",
@@ -56,10 +56,8 @@
   ],
   "sealed_fund_threshold": 0.08,
   "convertible_bond": {
-    "redeem_alert_days": 30,
-    "low_premium": 0.05,
-    "low_premium_price_max": 115,
-    "maturity_price_max": 105,
+    "ytm_threshold": 0.05,
+    "discount_premium": -0.01,
     "maturity_days": 365
   }
 }
