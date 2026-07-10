@@ -21,6 +21,7 @@ from monitors import base
 from monitors import qdii_lof
 from monitors import sealed_fund
 from monitors import convertible_bond
+from monitors import tender_offer
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
@@ -65,6 +66,14 @@ def main():
         all_alerts.extend(alerts)
     except Exception as e:
         print(f"[ERROR] 可转债模块异常: {e}")
+
+    # 4. 要约收购
+    print("\n--- 要约收购 ---")
+    try:
+        alerts = tender_offer.check(config, state)
+        all_alerts.extend(alerts)
+    except Exception as e:
+        print(f"[ERROR] 要约收购模块异常: {e}")
 
     # 推送
     print(f"\n{'='*60}")

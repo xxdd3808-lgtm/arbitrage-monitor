@@ -59,5 +59,7 @@
     "ytm_threshold": 0.05,
     "discount_premium": -0.01,
     "maturity_days": 365
-  }
+  },
+  "tender_offer": [],
+  "tender_offer_max_premium": 0.10
 }
