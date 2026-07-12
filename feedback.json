@@ -1,4 +1,33 @@
 {
-  "pending": [],
+  "pending": [
+    {
+      "code": "161914",
+      "signal_type": "sealed_discount",
+      "baseline_price": 0.953,
+      "baseline_price_aux": 1.0,
+      "baseline_date": "2026-07-12"
+    },
+    {
+      "code": "501062",
+      "signal_type": "sealed_discount",
+      "baseline_price": 2.26,
+      "baseline_price_aux": 2.3858,
+      "baseline_date": "2026-07-12"
+    },
+    {
+      "code": "501065",
+      "signal_type": "sealed_discount",
+      "baseline_price": 1.22,
+      "baseline_price_aux": 1.3173,
+      "baseline_date": "2026-07-12"
+    },
+    {
+      "code": "501093",
+      "signal_type": "sealed_discount",
+      "baseline_price": 1.082,
+      "baseline_price_aux": 1.165,
+      "baseline_date": "2026-07-12"
+    }
+  ],
   "completed": []
 }
