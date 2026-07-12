@@ -211,6 +211,7 @@ def clear_cls_logging():
     SCF 创建函数时自动开启 CLS 日志，CLS 不在 SCF 免费额度内（每天约 ¥0.04）。
     本函数清除 ClsLogsetId/ClsTopicId，使函数不再写入 CLS。
     残留的日志集需在控制台手动删除（子账号无 cls:DeleteLogset 权限）。
+    清除后验证配置确实为空，失败则 sys.exit(1) 防止带病上线。
     """
     print("\n[额外] 清除 CLS 日志配置（避免扣费）...")
     from tencentcloud.scf.v20180416 import models
@@ -226,10 +227,25 @@ def clear_cls_logging():
 
     try:
         _call_with_retry(_clear, "ClearCLS")
-        print("  CLS 日志配置已清除（函数不再写入 CLS）")
-        print("  注意：残留日志集需在控制台 CLS -> 日志集管理 手动删除")
+        # 验证清除成功
+        time.sleep(2)
+        verify_req = models.GetFunctionRequest()
+        verify_req.FunctionName = FUNCTION_NAME
+        resp = client.GetFunction(verify_req)
+        logset_id = getattr(resp, "ClsLogsetId", "") or ""
+        topic_id = getattr(resp, "ClsTopicId", "") or ""
+        if not logset_id and not topic_id:
+            print("  [OK] CLS 日志配置已清除，函数不再写入 CLS")
+        else:
+            print(f"  [ERROR] CLS 清除失败！ClsLogsetId={logset_id} ClsTopicId={topic_id}")
+            print(f"  函数会继续写 CLS 日志产生费用，请手动到控制台关闭")
+            sys.exit(1)
+    except SystemExit:
+        raise
     except Exception as e:
-        print(f"  [WARN] 清除 CLS 失败（非致命）: {e}")
+        print(f"  [ERROR] 清除 CLS 失败: {e}")
+        print(f"  函数可能继续写 CLS 日志产生费用，请手动到控制台关闭")
+        sys.exit(1)
 
 
 def main():
