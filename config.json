@@ -62,7 +62,7 @@
     {"code": "501093", "name": "华夏翔阳两年定开混合"}
   ],
   "sealed_fund_discount_threshold": 0.05,
-  "sealed_fund_annualized_threshold": 0.03,
+  "sealed_fund_annualized_threshold": 0.04,
   "convertible_bond": {
     "ytm_threshold": 0.05,
     "maturity_days": 365
