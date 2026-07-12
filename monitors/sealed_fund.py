@@ -1,15 +1,16 @@
 """封闭基金折价年化监控
 
 逻辑：折价买入封基/定开基金持有到期（或开放期），折价收敛为收益。
-- 双条件阈值（贴合当前市场，2026-07-12 起）：
-  - 折价率 > 3%（sealed_fund_discount_threshold）
-  - 年化 > 4%（sealed_fund_annualized_threshold）
-- 旧阈值 8% 在当前市场几乎不会触发（定开基金折价普遍 0-5%）
+- 双条件阈值（2026-07-12 调整，折价优先）：
+  - 折价率 > 5%（sealed_fund_discount_threshold）-- 核心条件，安全垫够厚
+  - 年化 > 3%（sealed_fund_annualized_threshold）-- 辅助条件，比货基略高即可
+- 折价是实际收益，年化只是资金效率参考（时间短年化会虚高）
+- 参考：张翼轸雪球文章"折价率是安全垫的厚薄，年化是滚动操作的资金效率"
 
 数据源：
 - 实时价格：Sina
 - 最新净值：akshare
-- 到期日：config.json 预设（定开基金到期日固定，需手动核实更新）
+- 开放日：自动从东方财富 F10 抓取（base.get_fund_open_date）
 """
 
 from datetime import datetime

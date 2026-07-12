@@ -89,14 +89,15 @@ Streamlit 看板（app.py）- 被动浏览
 2. **每信号每天最多推 1 次**：state.json 按日期去重
 3. **可转债排除退市转债**：代码 4 开头跳过
 4. **YTM 双源策略**：优先 `bond_cb_jsl` 精确值，fallback 用 105 保守估算
-5. **封基双条件阈值**：折价>3% 且 年化>4%（旧 8% 阈值在当前市场几乎不触发）
+5. **封基双条件阈值**：折价>5% 且 年化>3%（折价是实际收益，年化只是资金效率参考）
 6. **封基开放日自动抓取**：`base.get_fund_open_date(code)` 从东方财富 F10 页面抓取预估开放申购起始日，config.json 无需手动维护 maturity_date
 7. **封基异常数据过滤**：溢价 > 20% 视为净值滞后/分红除权，跳过（如 501046 曾出现 +37.81%）
 8. **时区统一北京时间**：`base.now_beijing()` 替代 `datetime.now()`（GitHub Actions 默认 UTC）
 9. **state.json + feedback.json 持久化用 `persist_state.py`**：GitHub API PUT，不回退到 git push（网络偶发超时）
 10. **反馈层基线记录**：每次推送时 `base.record_baseline()` 写入 feedback.json，T+N 后 `feedback.review_past_signals()` 自动回看
 11. **feedback.json completed 列表上限 100 条**：`review_past_signals` 自动清理旧记录
-12. **只推无底仓能做的信号**：不推持有者防亏、不推投机、不推申购暂停时的溢价
+12. **SCF 函数必须清除 CLS 日志**：`deploy.py` 的 `clear_cls_logging()` 清除 ClsLogsetId/ClsTopicId，避免 CLS 日志服务扣费（每天约 ¥0.04）。残留日志集需在控制台手动删除
+13. **只推无底仓能做的信号**：不推持有者防亏、不推投机、不推申购暂停时的溢价
 
 ## 常用命令
 

@@ -205,6 +205,33 @@ def setup_trigger():
     print(f"  触发器创建成功: 每天北京时间 10:00")
 
 
+def clear_cls_logging():
+    """清除 SCF 函数的 CLS 日志配置，避免 CLS 日志服务扣费。
+
+    SCF 创建函数时自动开启 CLS 日志，CLS 不在 SCF 免费额度内（每天约 ¥0.04）。
+    本函数清除 ClsLogsetId/ClsTopicId，使函数不再写入 CLS。
+    残留的日志集需在控制台手动删除（子账号无 cls:DeleteLogset 权限）。
+    """
+    print("\n[额外] 清除 CLS 日志配置（避免扣费）...")
+    from tencentcloud.scf.v20180416 import models
+
+    client = make_client()
+
+    def _clear():
+        req = models.UpdateFunctionConfigurationRequest()
+        req.FunctionName = FUNCTION_NAME
+        req.ClsLogsetId = ""
+        req.ClsTopicId = ""
+        client.UpdateFunctionConfiguration(req)
+
+    try:
+        _call_with_retry(_clear, "ClearCLS")
+        print("  CLS 日志配置已清除（函数不再写入 CLS）")
+        print("  注意：残留日志集需在控制台 CLS -> 日志集管理 手动删除")
+    except Exception as e:
+        print(f"  [WARN] 清除 CLS 失败（非致命）: {e}")
+
+
 def main():
     print("=" * 60)
     print("腾讯云函数 SCF 部署 - 套利机会扫描（轻量触发器）")
@@ -217,6 +244,7 @@ def main():
     zip_path = package_code()
     deploy_function(zip_path)
     setup_trigger()
+    clear_cls_logging()  # 防止 CLS 日志扣费
 
     print("\n" + "=" * 60)
     print("部署完成！")
