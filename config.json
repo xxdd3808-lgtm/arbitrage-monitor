@@ -47,19 +47,24 @@
     }
   ],
   "sealed_fund": [
-    {
-      "code": "501050",
-      "name": "华夏央调ETF联接A",
-      "maturity_date": "2027-06-15",
-      "note": "示例-需核实实际到期日"
-    }
+    {"code": "161040", "name": "富国创业板两年定开混合"},
+    {"code": "161132", "name": "易方达科顺定开混合"},
+    {"code": "161837", "name": "银华大盘两年定开混合"},
+    {"code": "161914", "name": "万家创业板2年定开A"},
+    {"code": "161915", "name": "万家创业板2年定开C"},
+    {"code": "162720", "name": "广发创业板两年定开混合"},
+    {"code": "501038", "name": "银华明择多策略定期开放混合"},
+    {"code": "501046", "name": "财通多策略福鑫定开混合"},
+    {"code": "501062", "name": "南方瑞合定开混合"},
+    {"code": "501065", "name": "汇添富经典成长定开混合"},
+    {"code": "501070", "name": "广发睿阳三年定开混合"},
+    {"code": "501088", "name": "嘉实瑞虹三年定期混合"},
+    {"code": "501093", "name": "华夏翔阳两年定开混合"}
   ],
-  "sealed_fund_threshold": 0.08,
+  "sealed_fund_discount_threshold": 0.03,
+  "sealed_fund_annualized_threshold": 0.04,
   "convertible_bond": {
     "ytm_threshold": 0.05,
-    "discount_premium": -0.01,
     "maturity_days": 365
-  },
-  "tender_offer": [],
-  "tender_offer_max_premium": 0.10
+  }
 }

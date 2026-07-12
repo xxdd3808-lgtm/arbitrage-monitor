@@ -1,13 +1,15 @@
 """封闭基金折价年化监控
 
-逻辑：折价买入封基持有到期，折价收敛为确定性收益。
-- 折价年化 = 折价率 / 剩余年限
-- 年化 > 8% 值得关注，年化 > 12% 重点关注
+逻辑：折价买入封基/定开基金持有到期（或开放期），折价收敛为收益。
+- 双条件阈值（贴合当前市场，2026-07-12 起）：
+  - 折价率 > 3%（sealed_fund_discount_threshold）
+  - 年化 > 4%（sealed_fund_annualized_threshold）
+- 旧阈值 8% 在当前市场几乎不会触发（定开基金折价普遍 0-5%）
 
 数据源：
 - 实时价格：Sina
 - 最新净值：akshare
-- 到期日：config.json 预设（封基到期日固定，不需实时拉取）
+- 到期日：config.json 预设（定开基金到期日固定，需手动核实更新）
 """
 
 from datetime import datetime
@@ -19,9 +21,12 @@ def calc_annualized_discount(discount_rate, maturity_date, today=None):
     if not maturity_date or discount_rate is None:
         return None
     if today is None:
-        today = datetime.now()
+        today = base.now_beijing()
     try:
         mat = datetime.strptime(str(maturity_date)[:10], "%Y-%m-%d")
+        # mat 是 naive datetime，today 是 aware，统一为 naive
+        if today.tzinfo is not None:
+            today = today.replace(tzinfo=None)
         days = (mat - today).days
         if days <= 0:
             return None  # 已到期
@@ -37,12 +42,21 @@ def calc_annualized_discount(discount_rate, maturity_date, today=None):
 def check(config, state):
     alerts = []
     items = config.get("sealed_fund", [])
-    threshold = config.get("sealed_fund_threshold", 0.08)  # 默认年化8%
+    discount_threshold = config.get("sealed_fund_discount_threshold", 0.03)
+    annualized_threshold = config.get("sealed_fund_annualized_threshold", 0.04)
 
     for item in items:
         code = item["code"]
         name = item["name"]
+        # 开放日优先用 config 预设，否则自动从东方财富抓取
         maturity = item.get("maturity_date", "")
+        if not maturity:
+            maturity = base.get_fund_open_date(code)
+            if maturity:
+                print(f"[封基] {name}({code}) 自动抓取开放日: {maturity}")
+            else:
+                print(f"[封基] {name}({code}) 开放日抓取失败，跳过")
+                continue
 
         print(f"[封基] {name}({code}) ...")
 
@@ -58,22 +72,31 @@ def check(config, state):
         if discount is None:
             continue
 
+        # 异常数据过滤：溢价 > 20% 视为数据错误（净值滞后/分红除权等），跳过
+        # 正常封基折价率在 -10% ~ +5% 之间，超过 20% 多为数据问题
+        if discount > 0.20:
+            print(f"  异常溢价{discount*100:+.2f}%（疑似净值滞后/分红除权），跳过")
+            continue
+
         annualized = calc_annualized_discount(discount, maturity)
 
         discount_str = f"{discount*100:+.2f}%"
         ann_str = f"{annualized*100:.1f}%" if annualized else "N/A"
         print(f"  价格¥{price:.4f} 净值¥{nav:.4f}({nav_date}) 折价{discount_str} 到期{maturity} 年化{ann_str}")
 
-        if annualized and annualized >= threshold and discount < 0:
+        # 双条件：折价 > 3% 且 年化 > 4%
+        if (annualized and annualized >= annualized_threshold
+                and discount < -discount_threshold):
             key = f"{code}_sealed_discount"
             if not base.already_notified(state, key):
                 alerts.append(
-                    f"📊 封基 {name}({code}) 折价年化 {ann_str}\n"
+                    f"📊 封基 {name}({code}) 折价 {discount_str} | 年化 {ann_str}\n"
                     f"  价格¥{price:.4f} 净值¥{nav:.4f}({nav_date})\n"
-                    f"  折价 {discount_str} | 到期 {maturity}\n"
-                    f"  -> 买入持有到期，折价收敛是合同保证的确定性收益\n"
-                    f"  ⚠️ 注意: 部分封基成交额低（日<百万），注意流动性风险，建议分散持有"
+                    f"  到期 {maturity}\n"
+                    f"  -> 买入持有到期/开放期，折价收敛为收益\n"
+                    f"  ⚠️ 注意: 部分定开基金成交额低，注意流动性风险"
                 )
-                base.mark_notified(state, key, {"annualized": ann_str})
+                base.mark_notified(state, key, {"annualized": ann_str, "discount": discount_str})
+                base.record_baseline(state, code, "sealed_discount", price, nav)
 
     return alerts

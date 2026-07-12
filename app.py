@@ -105,7 +105,7 @@ with tab1:
         if not found:
             st.write("（暂无）")
 
-    st.caption("注：申购赎回状态来自 config.json 预设。状态变化时 notify.py 会自动推送 P0 信号。")
+    st.caption("注：申购赎回状态来自 config.json 预设。P1 需开放申购+溢价>5%，P2 需折价>8%。")
 
 
 # ---------- Tab 2: 可转债 ----------

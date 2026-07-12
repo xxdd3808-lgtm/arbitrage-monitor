@@ -1,11 +1,10 @@
 name: 套利机会扫描
 
 on:
+  repository_dispatch:       # 主触发：腾讯云 SCF 每天 10:00 调用
   schedule:
-    # A 股交易时段检查（北京时间 9:30-15:00 = UTC 1:30-7:00）
-    - cron: '0 2 * * 1-5'     # UTC 02:00 = 北京 10:00
-    - cron: '0 4 * * 1-5'     # UTC 04:00 = 北京 12:00
-    - cron: '0 6 * * 1-5'     # UTC 06:00 = 北京 14:00
+    # Fallback：若 SCF 失败，10:30 兜底（去重靠 state.json，不会重复推送）
+    - cron: '30 2 * * *'    # UTC 02:30 = 北京 10:30
   workflow_dispatch:
 
 concurrency:
@@ -34,16 +33,12 @@ jobs:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: python notify.py
 
-      - name: 提交 state.json
+      - name: 持久化 state.json 和 feedback.json（GitHub API，绕过 git push 超时）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if ! git diff --quiet state.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add state.json
-            git commit -m "update state $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            git push
+          if ! git diff --quiet state.json feedback.json 2>/dev/null; then
+            python3 persist_state.py
           else
-            echo "[INFO] state.json 无变化，跳过提交"
+            echo "[INFO] state.json/feedback.json 无变化，跳过提交"
           fi

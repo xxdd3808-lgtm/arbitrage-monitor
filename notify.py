@@ -5,9 +5,9 @@
 每个信号每天最多推送 1 次（state.json 去重）。
 
 品种：
-- QDII-LOF：折溢价 + 申购赎回状态变化（P0/P1/P2）
-- 封闭基金：折价年化超阈值
-- 可转债：强赎公告/最后交易日/到期保本/低溢价
+- QDII-LOF：折溢价（P1 溢价套利 / P2 折价套利）
+- 封闭基金：折价年化超阈值（折价>3% 且 年化>4%）
+- 可转债：到期保本套利（YTM>5% + 到期<1年）
 """
 
 import sys
@@ -21,7 +21,7 @@ from monitors import base
 from monitors import qdii_lof
 from monitors import sealed_fund
 from monitors import convertible_bond
-from monitors import tender_offer
+from monitors import feedback
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
@@ -33,14 +33,22 @@ def load_config():
 
 
 def main():
+    now_str = base.now_beijing().strftime('%Y-%m-%d %H:%M:%S')
     print(f"\n{'='*60}")
-    print(f"多品种套利机会扫描 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"多品种套利机会扫描 | {now_str}")
     print(f"{'='*60}")
 
     config = load_config()
     state = base.load_state()
 
     all_alerts = []
+
+    # 0. 反馈层：回看历史推送信号的实际收益（不推送，仅记录到 feedback.json）
+    print("\n--- 反馈回看 ---")
+    try:
+        feedback.review_past_signals(state)
+    except Exception as e:
+        print(f"[ERROR] 反馈层异常: {e}")
 
     # 1. QDII-LOF
     print("\n--- QDII-LOF ---")
@@ -67,14 +75,6 @@ def main():
     except Exception as e:
         print(f"[ERROR] 可转债模块异常: {e}")
 
-    # 4. 要约收购
-    print("\n--- 要约收购 ---")
-    try:
-        alerts = tender_offer.check(config, state)
-        all_alerts.extend(alerts)
-    except Exception as e:
-        print(f"[ERROR] 要约收购模块异常: {e}")
-
     # 推送
     print(f"\n{'='*60}")
     print(f"扫描完成，共 {len(all_alerts)} 条信号")
@@ -83,7 +83,7 @@ def main():
     if all_alerts:
         title = f"🔔 套利机会提醒（{len(all_alerts)} 条）"
         body = "\n\n".join(all_alerts)
-        body += f"\n\n---\n扫描时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        body += f"\n\n---\n扫描时间: {base.now_beijing().strftime('%Y-%m-%d %H:%M:%S')}"
         print(f"\n[NOTIFY] 推送 {len(all_alerts)} 条信号...")
         base.send_pushplus(title, body)
     else:

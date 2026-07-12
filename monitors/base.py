@@ -12,14 +12,24 @@ import json
 import re
 import time
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import akshare as ak
 
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(SCRIPT_DIR, "state.json")
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
-TODAY = datetime.now().strftime("%Y-%m-%d")
+
+# 北京时区（GitHub Actions 默认 UTC，A 股交易按北京时间）
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+def now_beijing():
+    """返回北京时间的 datetime（带时区）"""
+    return datetime.now(BEIJING_TZ)
+
+
+TODAY = now_beijing().strftime("%Y-%m-%d")
 
 
 # ---------- 状态管理 ----------
@@ -42,6 +52,34 @@ def already_notified(state, key):
 
 def mark_notified(state, key, extra=None):
     state[key] = {"date": TODAY, **(extra or {})}
+
+
+def record_baseline(state, code, signal_type, baseline_price, baseline_price_aux=None):
+    """记录推送信号的基线价格到 feedback.json，用于 T+N 回看实际收益。
+
+    feedback.py 的 review_past_signals 会消费这些基线。
+    baseline_price_aux: 辅助价格（如 IOPV/NAV），可选。
+    """
+    feedback_path = os.path.join(SCRIPT_DIR, "feedback.json")
+    if os.path.exists(feedback_path):
+        try:
+            with open(feedback_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            data = {"pending": [], "completed": []}
+    else:
+        data = {"pending": [], "completed": []}
+
+    data.setdefault("pending", []).append({
+        "code": code,
+        "signal_type": signal_type,
+        "baseline_price": baseline_price,
+        "baseline_price_aux": baseline_price_aux,
+        "baseline_date": TODAY,
+    })
+
+    with open(feedback_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 # ---------- 数据获取 ----------
@@ -149,4 +187,25 @@ def calc_premium(price, nav):
     """折溢价率 = price/nav - 1"""
     if price and nav and nav > 0:
         return price / nav - 1
+    return None
+
+
+# ---------- 封基开放日抓取 ----------
+def get_fund_open_date(code):
+    """从东方财富 F10 页面抓取预估开放申购起始日。返回 YYYY-MM-DD 字符串或 None。
+
+    定开基金的"到期日"实际是下一个开放期开始日，折价在该日期前收敛。
+    数据源：fundf10.eastmoney.com/jbgk_{code}.html 的"预估开放申购时间"字段。
+    """
+    try:
+        url = f"https://fundf10.eastmoney.com/jbgk_{code}.html"
+        r = requests.get(url, timeout=10, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Referer": "http://fund.eastmoney.com/"
+        })
+        m = re.search(r'预估开放申购时间[\s\S]{0,200}?(\d{4})年(\d{2})月(\d{2})日', r.text)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    except Exception:
+        pass
     return None

@@ -1,30 +1,35 @@
-"""可转债确定性套利监控（只推买入能赚钱的信号）
+"""可转债到期保本套利监控
 
 推送信号：
 - 到期保本套利：YTM > 5% 且 到期 < 1年
   操作：买入持有到期
   收益：(到期赎回价 - 现价) / 现价，年化
-  确定性：到期还本是法律义务，AA+以上违约概率<0.1%
+  确定性：到期还本是法律义务
+
+YTM 数据源（2026-07-12 精度修复）：
+- 主数据源：bond_cb_jsl 的"到期税前收益"字段（集思录精确计算，30只筛选转债）
+- Fallback：bond_cb_redeem_jsl 的 320 只，用保守估算 (105-现价)/现价/剩余年限
+  - 估算赎回价从 106 降为 105（保守，减少假阳性）
+  - 估算结果仅作候选，推送时标注"估算"
 
 注意：以下信号已降级为看板参考，不推送：
-- 折价转股套利（溢价<-1%）：散户隔夜风险太大，安全垫覆盖不了正股波动
-- 回售套利（正股<转股价70%+转债<103）：回售价不是固定103（=100+应计利息），
-  连续30天条件难验证，公司可能下修消除回售。变量太多，非确定性套利
+- 折价转股套利：散户隔夜风险太大（app.py 看板仍显示供参考）
+- 回售套利：回售价非固定、30天条件难验证、公司可能下修（app.py 看板显示正股vs触发价）
 
 数据源：
+- bond_cb_jsl (30只，精确YTM)
 - bond_cb_redeem_jsl (320只，全面扫描)
-- bond_cb_jsl (30只，精确YTM，集思录筛选的值得关注转债)
 """
 
 from datetime import datetime
 from . import base
 
-# 到期赎回价估算值（多数转债在105-110之间，用106作保守估算）
-ESTIMATED_REDEEM_PRICE = 106.0
+# Fallback 估算赎回价（保守，多数转债 105-110，用 105 减少假阳性）
+FALLBACK_REDEEM_PRICE = 105.0
 
 
 def calc_conversion_premium(bond_price, stock_price, conversion_price):
-    """转股溢价率 = 债现价/转股价值 - 1。负数=折价（套利机会）"""
+    """转股溢价率 = 债现价/转股价值 - 1。负数=折价"""
     try:
         if not all([bond_price, stock_price, conversion_price]) or conversion_price <= 0:
             return None
@@ -51,14 +56,17 @@ def days_to(date_str):
         return None
     try:
         d = datetime.strptime(str(date_str)[:10], "%Y-%m-%d")
-        return (d - datetime.now()).days
+        now = base.now_beijing()
+        if now.tzinfo is not None:
+            now = now.replace(tzinfo=None)
+        return (d - now).days
     except (ValueError, TypeError):
         return None
 
 
 def calc_ytm(price, maturity_date, exact_ytm=None):
     """计算到期收益率(YTM)。
-    优先用集思录精确值，否则用(106-现价)/现价/剩余年限估算。
+    优先用集思录精确值，否则用 (105-现价)/现价/剩余年限 保守估算。
     返回小数（0.05 = 5%）"""
     if exact_ytm is not None and -0.5 < exact_ytm < 0.5:  # 过滤异常值
         return exact_ytm
@@ -66,14 +74,13 @@ def calc_ytm(price, maturity_date, exact_ytm=None):
     if not days or days <= 0 or price <= 0:
         return None
     years = days / 365.0
-    return (ESTIMATED_REDEEM_PRICE - price) / price / years
+    return (FALLBACK_REDEEM_PRICE - price) / price / years
 
 
 def check(config, state):
     alerts = []
     cb_config = config.get("convertible_bond", {})
     ytm_threshold = cb_config.get("ytm_threshold", 0.05)
-    discount_premium_threshold = cb_config.get("discount_premium", -0.01)
     maturity_days_max = cb_config.get("maturity_days", 365)
 
     print(f"[可转债] 拉取数据...")
@@ -88,7 +95,7 @@ def check(config, state):
             ytm_raw = row.get("到期税前收益")
             try:
                 ytm = float(ytm_raw) / 100 if ytm_raw is not None else None
-                if code and ytm is not None:
+                if code and ytm is not None and -0.5 < ytm < 0.5:
                     jsl_ytm_map[code] = ytm
             except (TypeError, ValueError):
                 pass
@@ -114,8 +121,6 @@ def check(config, state):
         code = str(row.get("代码", "")).strip()
         name = str(row.get("名称", "")).strip()
         price = row.get("现价")
-        stock_price = row.get("正股价")
-        conv_price = row.get("转股价")
         maturity_date = row.get("到期日")
 
         if not code or price is None:
@@ -130,27 +135,29 @@ def check(config, state):
             continue
 
         # 信号: 到期保本套利（YTM > 5% 且 到期 < 1年）
-        # 注：折价转股和回售套利已降级为看板参考，不推送
         mat_days = days_to(maturity_date)
         if mat_days and 0 < mat_days <= maturity_days_max:
             exact_ytm = jsl_ytm_map.get(code)
             ytm = calc_ytm(price, maturity_date, exact_ytm)
-            if ytm is not None and ytm >= ytm_threshold and price < ESTIMATED_REDEEM_PRICE:
-                ytm_source = "精确" if exact_ytm is not None else "估算"
+            ytm_source = "精确" if exact_ytm is not None else "估算"
+            # 估算的额外要求价格 < 105（保守，避免假阳性）；精确的信任集思录
+            price_cap = FALLBACK_REDEEM_PRICE if exact_ytm is None else 110
+            if ytm is not None and ytm >= ytm_threshold and price < price_cap:
                 mat_key = f"{code}_cb_maturity_arb"
                 if not base.already_notified(state, mat_key):
                     maturity_opps.append(
                         f"  {name}({code}) 现价{price:.2f} YTM {ytm*100:.1f}%({ytm_source}) | "
                         f"到期{maturity_date}（剩{mat_days}天）\n"
-                        f"    操作: 买入持有到期 | 到期赎回约¥{ESTIMATED_REDEEM_PRICE:.0f}"
+                        f"    操作: 买入持有到期 | 到期赎回约¥{FALLBACK_REDEEM_PRICE:.0f}(估算)/实际见公告"
                     )
-                    base.mark_notified(state, mat_key, {"ytm": f"{ytm*100:.1f}%"})
+                    base.mark_notified(state, mat_key, {"ytm": f"{ytm*100:.1f}%", "source": ytm_source})
+                    base.record_baseline(state, code, "cb_maturity", price)
 
     if maturity_opps:
         alerts.append(
             "💰【到期保本套利】（买入持有到期）\n"
             + "\n".join(maturity_opps[:10])
-            + "\n  ✅ 确定性: 到期还本是法律义务，AA+以上违约概率<0.1%"
+            + "\n  ✅ 确定性: 到期还本是法律义务（精确YTM来自集思录，估算为保守推算）"
         )
 
     return alerts

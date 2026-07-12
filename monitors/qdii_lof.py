@@ -1,14 +1,17 @@
 """QDII-LOF 折溢价监控
 
 信号：
-- P0 黄金信号：申购状态 暂停->开放 + 当前溢价 > 3%（套利窗口打开）
-- P1 可操作信号：开放申购 + 持续溢价 > 5%
-- P2 极端信号：折价 > 8%（罕见但安全垫厚）/ 溢价 > 15%（极端卖出信号）
+- P1 可操作信号：开放申购 + 持续溢价 > 5%（申购->T+2卖出）
+- P2 极端信号：折价 > 8%（买入+赎回，安全垫厚）
+
+注：P0（申购恢复检测）已移除。原 P0 依赖 config.json 手动维护 buy_status，
+形成"用户改 config -> 系统通知用户"的循环通知，违背监控系统初衷。
+P1 已覆盖"开放申购 + 溢价"场景，无需 P0。
 
 数据源：
 - 实时价格：Sina
 - 实时估值(IOPV)：天天基金 gsz（部分LOF有），fallback 到最新净值
-- 申购赎回状态：config.json 预设
+- 申购赎回状态：config.json 预设（仅用于 P1 判断是否开放申购）
 """
 
 from . import base
@@ -64,41 +67,6 @@ def check(config, state):
         premium_str = f"{premium*100:+.2f}%"
         print(f"  价格¥{price:.4f} IOPV¥{iopv:.4f}({iopv_source}) 折溢价{premium_str} | 申购:{curr_buy} 赎回:{curr_redeem}")
 
-        # P0 信号：申购状态变化（暂停->开放）
-        prev_buy_key = f"{code}_qdii_buy_status"
-        prev_buy = state.get(prev_buy_key, {}).get("status", "")
-        if prev_buy and prev_buy != curr_buy:
-            if "开放" in curr_buy and "暂停" in prev_buy:
-                # 申购恢复！
-                p0_key = f"{code}_qdii_p0_buyopen"
-                if not base.already_notified(state, p0_key):
-                    extra = ""
-                    if premium > 0:
-                        extra = f"\n  当前溢价 {premium_str} -> 可申购+卖出套利，预计收益 {premium*100:.1f}%"
-                    elif premium < -0.02:
-                        extra = f"\n  当前折价 {premium_str} -> 申购无套利价值"
-                    else:
-                        extra = f"\n  当前折溢价 {premium_str} -> 中性"
-                    alerts.append(
-                        f"🟢 P0 {name}({code}) 申购恢复！\n"
-                        f"  {prev_buy} -> {curr_buy}\n"
-                        f"  价格¥{price:.4f} IOPV¥{iopv:.4f}{extra}"
-                    )
-                    base.mark_notified(state, p0_key, {"from": prev_buy, "to": curr_buy})
-            elif "暂停" in curr_buy and "开放" in prev_buy:
-                p0_key = f"{code}_qdii_p0_buyclose"
-                if not base.already_notified(state, p0_key):
-                    alerts.append(
-                        f"⚠️ P0 {name}({code}) 申购暂停\n"
-                        f"  {prev_buy} -> {curr_buy}\n"
-                        f"  溢价套利窗口关闭"
-                    )
-                    base.mark_notified(state, p0_key, {"from": prev_buy, "to": curr_buy})
-
-        # 更新状态
-        if curr_buy != "未知":
-            state[prev_buy_key] = {"status": curr_buy, "date": base.TODAY}
-
         # P1 信号：开放申购 + 持续溢价 > 阈值
         if "开放" in curr_buy and premium >= premium_threshold_p1:
             p1_key = f"{code}_qdii_p1_premium"
@@ -109,9 +77,10 @@ def check(config, state):
                     f"  -> 申购->T+2卖出，预计收益 {(premium-0.0015)*100:.1f}%（扣申购费0.15%）"
                 )
                 base.mark_notified(state, p1_key, {"premium": premium_str})
+                # 反馈层：记录基线用于 T+2 回看
+                base.record_baseline(state, code, "qdii_p1", price, iopv)
 
         # P2 信号：极端折价（>8%）-- 买入+赎回套利，安全垫厚
-        # 注：极端溢价(>15%)是已持有者卖出信号，用户无底仓不推
         if premium <= -discount_threshold_p2:
             p2_key = f"{code}_qdii_p2_discount"
             if not base.already_notified(state, p2_key):
@@ -121,5 +90,7 @@ def check(config, state):
                     f"  赎回:{curr_redeem} -> 如开放赎回，买入+赎回安全垫{abs(premium)*100-1.5:.1f}%"
                 )
                 base.mark_notified(state, p2_key, {"premium": premium_str})
+                # 反馈层：记录基线用于 T+30 回看
+                base.record_baseline(state, code, "qdii_p2", price, iopv)
 
     return alerts
