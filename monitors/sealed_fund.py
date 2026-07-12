@@ -2,17 +2,20 @@
 
 逻辑：折价买入封基/定开基金持有到期（或开放期），折价收敛为收益。
 - 双条件阈值（2026-07-12 定稿，资金机会成本视角）：
-  - 折价率 > 3%（sealed_fund_discount_threshold）-- 绝对收益有意义（扣成本0.5%净赚2.5%+）
+  - 折价率 > 4%（sealed_fund_discount_threshold）-- 绝对收益有意义（扣成本0.5%净赚3.5%+）
   - 年化 > 10%（sealed_fund_annualized_threshold）-- 满足资金机会成本（股票预期10-15%）
-- 年化 = 折价 / 到期年限，年化10%+必然到期近（<1年）、折价薄（3-5%）
+- 年化 = 折价 / 到期年限，年化10%+必然到期近（<1年）、折价薄（4-5%）
 - 调研依据：张翼轸《封基每年白送6%》+ 零城逆影《场内折价封基指南》
 
-推送规则（首次出现才推，不重复）：
-- 首次满足阈值 -> 推 + 记录
-- 持续满足 -> 不推（避免重复骚扰）
+推送规则（首次推 + 月底提醒，不日常重复）：
+- 首次满足阈值 -> 推 + 记录 last_pushed_month = 当前月
+- 持续满足，非月底 -> 不推
+- 持续满足，月底（今天>=28）且当前月 != last_pushed_month -> 推月度提醒 + 更新 last_pushed_month
 - 信号消失（折价收敛/到期）-> 清除记录
 - 数据获取失败 -> 保持现状（不误清除）
-- 再次满足 -> 重新推（新机会）
+- 再次满足 -> 重新推（新机会，首次）
+
+月底提醒会重新验证是否仍满足阈值（数据实时拉取），不满足则清除记录不推。
 
 数据源：
 - 实时价格：Sina
@@ -50,8 +53,12 @@ def calc_annualized_discount(discount_rate, maturity_date, today=None):
 def check(config, state):
     alerts = []
     items = config.get("sealed_fund", [])
-    discount_threshold = config.get("sealed_fund_discount_threshold", 0.03)
+    discount_threshold = config.get("sealed_fund_discount_threshold", 0.04)
     annualized_threshold = config.get("sealed_fund_annualized_threshold", 0.10)
+
+    now = base.now_beijing()
+    current_month = now.strftime("%Y-%m")  # 如 "2026-07"
+    today_day = now.day
 
     # 本次扫描中"数据成功获取且满足阈值"的 key 集合
     current_satisfied = set()
@@ -102,13 +109,13 @@ def check(config, state):
         ann_str = f"{annualized*100:.1f}%" if annualized else "N/A"
         print(f"  价格¥{price:.4f} 净值¥{nav:.4f}({nav_date}) 折价{discount_str} 到期{maturity} 年化{ann_str}")
 
-        # 双条件：折价 > 3% 且 年化 > 10%
+        # 双条件：折价 > 4% 且 年化 > 10%
         if (annualized and annualized >= annualized_threshold
                 and discount < -discount_threshold):
             current_satisfied.add(key)
 
-            # 首次出现才推（state 里没记录）
             if key not in state:
+                # 首次出现，推送
                 alerts.append(
                     f"📊 封基 {name}({code}) 折价 {discount_str} | 年化 {ann_str}\n"
                     f"  价格¥{price:.4f} 净值¥{nav:.4f}({nav_date})\n"
@@ -116,11 +123,38 @@ def check(config, state):
                     f"  -> 买入持有到期/开放期，折价收敛为收益\n"
                     f"  ⚠️ 注意: 部分定开基金成交额低，注意流动性风险"
                 )
-                base.mark_notified(state, key, {"annualized": ann_str, "discount": discount_str})
+                state[key] = {
+                    "first_pushed": base.TODAY,
+                    "last_pushed_month": current_month,
+                    "discount": discount_str,
+                    "annualized": ann_str,
+                }
                 base.record_baseline(state, code, "sealed_discount", price, nav)
-                print(f"  [推送] 首次出现，推送")
+                print(f"  [推送] 首次出现")
             else:
-                print(f"  [跳过] 已推过，不重复")
+                # 已推过，检查是否需要月度提醒
+                prev = state[key]
+                last_pushed_month = prev.get("last_pushed_month", "")
+                # 月底提醒：当前月 != 上次推送月 且 今天 >= 28
+                if current_month != last_pushed_month and today_day >= 28:
+                    alerts.append(
+                        f"📊 封基 {name}({code}) 折价 {discount_str} | 年化 {ann_str}（月度提醒）\n"
+                        f"  价格¥{price:.4f} 净值¥{nav:.4f}({nav_date})\n"
+                        f"  到期 {maturity}\n"
+                        f"  首次推送: {prev.get('first_pushed', 'N/A')}\n"
+                        f"  -> 仍满足阈值，机会有效"
+                    )
+                    state[key] = {
+                        **prev,
+                        "last_pushed_month": current_month,
+                        "discount": discount_str,
+                        "annualized": ann_str,
+                        "last_remind_date": base.TODAY,
+                    }
+                    base.record_baseline(state, code, "sealed_discount", price, nav)
+                    print(f"  [推送] 月底提醒（已重新验证仍满足阈值）")
+                else:
+                    print(f"  [跳过] 已推过，非月底或本月已推月度提醒")
 
     # 清理消失的信号（之前满足但现在不满足的，且不是数据失败的）
     keys_to_remove = [

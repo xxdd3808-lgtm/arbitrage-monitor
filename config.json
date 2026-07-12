@@ -61,7 +61,7 @@
     {"code": "501088", "name": "嘉实瑞虹三年定期混合"},
     {"code": "501093", "name": "华夏翔阳两年定开混合"}
   ],
-  "sealed_fund_discount_threshold": 0.03,
+  "sealed_fund_discount_threshold": 0.04,
   "sealed_fund_annualized_threshold": 0.10,
   "convertible_bond": {
     "ytm_threshold": 0.05,
