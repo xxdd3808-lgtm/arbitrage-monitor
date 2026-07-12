@@ -87,7 +87,7 @@ def env_vars():
 
 
 def _call_with_retry(fn, description, max_retries=5, delay=5):
-    """调用 SCF API，对 Updating 状态冲突自动重试"""
+    """调用 SCF API，对 Updating/Creating 状态冲突自动重试"""
     last_err = None
     for attempt in range(max_retries):
         try:
@@ -97,6 +97,10 @@ def _call_with_retry(fn, description, max_retries=5, delay=5):
             msg = str(e)
             if "Updating" in msg and "无法进行此操作" in msg:
                 print(f"  [WAIT] {description} - 函数更新中，{delay}秒后重试 ({attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            if "FailedOperation" in msg and "Status is" in msg:
+                print(f"  [WAIT] {description} - 函数状态非正常，{delay}秒后重试 ({attempt + 1}/{max_retries})")
                 time.sleep(delay)
                 continue
             raise
@@ -192,7 +196,12 @@ def setup_trigger():
     req.Type = "timer"
     req.TriggerDesc = "0 0 10 * * * *"
     req.Enable = "OPEN"
-    client.CreateTrigger(req)
+
+    # 新创建的函数可能还在 Creating 状态，CreateTrigger 会失败，需重试
+    def _create_trigger():
+        client.CreateTrigger(req)
+
+    _call_with_retry(_create_trigger, "CreateTrigger")
     print(f"  触发器创建成功: 每天北京时间 10:00")
 
 

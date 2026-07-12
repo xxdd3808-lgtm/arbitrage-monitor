@@ -8,16 +8,20 @@
 ## 架构（2026-07-12 重构版）
 
 ```
-GitHub Actions（A 股交易时段 3 次/天：10:00/12:00/14:00 北京时间）
-  -> notify.py（统一推送入口）
-    -> feedback.review_past_signals()  先回看历史信号实际收益
-    -> monitors/qdii_lof.py            QDII-LOF P1/P2 折溢价套利
-    -> monitors/sealed_fund.py         封闭基金折价年化
-    -> monitors/convertible_bond.py    可转债到期保本套利
-    -> PushPlus 微信推送
-    -> state.json 去重（每信号每天最多 1 次）
-    -> feedback.json 基线记录 + T+N 回看
-  -> persist_state.py 通过 GitHub API PUT 持久化（绕过 git push 超时）
+腾讯云 SCF（北京时间 10:00 定时）
+  -> scf_handler.py HTTP POST 到 GitHub API (repository_dispatch)
+  -> GitHub Actions workflow (concurrency group 串行)
+    -> notify.py（统一推送入口）
+      -> feedback.review_past_signals()  先回看历史信号实际收益
+      -> monitors/qdii_lof.py            QDII-LOF P1/P2 折溢价套利
+      -> monitors/sealed_fund.py         封闭基金折价年化（开放日自动抓取）
+      -> monitors/convertible_bond.py    可转债到期保本套利
+      -> PushPlus 微信推送
+      -> state.json 去重（每信号每天最多 1 次）
+      -> feedback.json 基线记录 + T+N 回看
+    -> persist_state.py 通过 GitHub API PUT 持久化（绕过 git push 超时）
+
+Fallback: GitHub Actions schedule 10:30 兜底（若 SCF 失败）
 
 Streamlit 看板（app.py）- 被动浏览
   -> 3 个 tab：QDII-LOF / 可转债 / 封闭基金
@@ -47,6 +51,8 @@ Streamlit 看板（app.py）- 被动浏览
 |------|------|
 | `app.py` | Streamlit 看板（3 tab） |
 | `notify.py` | 统一推送入口，调各 monitor 的 check() + feedback 回看 |
+| `scf_handler.py` | 腾讯云 SCF 入口（~50 行，HTTP POST 触发 repository_dispatch）|
+| `deploy.py` | 一键部署 SCF（打包 + 创建函数 + 配置 10:00 定时触发器）|
 | `monitors/base.py` | 公共工具：Sina实时价/天天基金估值/akshare净值/PushPlus/状态管理/基线记录/封基开放日抓取 |
 | `monitors/qdii_lof.py` | QDII-LOF 折溢价监控（P1/P2） |
 | `monitors/sealed_fund.py` | 封闭基金折价年化（双条件阈值，开放日自动抓取） |
@@ -106,11 +112,17 @@ python notify.py
 # 带 token 本地测试
 PUSHPLUS_TOKEN="你的token" python notify.py
 
-# 手动触发 GitHub Actions
+# 手动触发 SCF（验证完整链路：SCF -> GitHub Actions -> 推送）
+tccli scf Invoke --FunctionName arbitrage-notify --region ap-shanghai
+
+# 直接触发 GitHub Actions（不经过 SCF）
 gh workflow run check.yml -R xxdd3808-lgtm/arbitrage-monitor
 
 # 查看运行日志
 gh run list -R xxdd3808-lgtm/arbitrage-monitor --limit 5
+
+# 重新部署 SCF（仅改 scf_handler.py 时需要）
+GITHUB_PAT=$(gh auth token) python3 deploy.py
 ```
 
 ## 配置 PUSHPLUS_TOKEN
