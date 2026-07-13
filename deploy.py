@@ -139,8 +139,25 @@ def deploy_function(zip_path):
         req.ZipFile = zip_b64
         client.UpdateFunctionCode(req)
 
+        # UpdateFunctionCode 触发异步更新，函数进入 Updating 状态
+        # 必须等 Active 才能 UpdateFunctionConfiguration，否则 5 次重试都不够
+        print("  等待函数进入 Active 状态...")
+        for i in range(30):
+            time.sleep(3)
+            get_req = models.GetFunctionRequest()
+            get_req.FunctionName = FUNCTION_NAME
+            resp = client.GetFunction(get_req)
+            status = resp.Status
+            if status == "Active":
+                print(f"  函数已 Active（{(i+1)*3}s）")
+                break
+            print(f"  [{(i+1)*3}s] 状态: {status}")
+        else:
+            print(f"  [ERROR] 函数 90 秒后仍非 Active")
+            sys.exit(1)
+
         print("  更新函数配置...")
-        time.sleep(3)
+        time.sleep(2)
 
         def _update_config():
             req = models.UpdateFunctionConfigurationRequest()
