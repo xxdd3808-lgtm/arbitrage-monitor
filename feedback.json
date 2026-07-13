@@ -13,6 +13,13 @@
       "baseline_price": 0.935,
       "baseline_price_aux": 1.0,
       "baseline_date": "2026-07-13"
+    },
+    {
+      "code": "162720",
+      "signal_type": "sealed_discount",
+      "baseline_price": 1.437,
+      "baseline_price_aux": 1.5173,
+      "baseline_date": "2026-07-13"
     }
   ],
   "completed": []
