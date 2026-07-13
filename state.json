@@ -18,5 +18,17 @@
   "161129_qdii_buy_status": {
     "status": "暂停申购",
     "date": "2026-07-10"
+  },
+  "161040_sealed_discount": {
+    "first_pushed": "2026-07-13",
+    "last_pushed_month": "2026-07",
+    "discount": "-4.55%",
+    "annualized": "69.1%"
+  },
+  "161914_sealed_discount": {
+    "first_pushed": "2026-07-13",
+    "last_pushed_month": "2026-07",
+    "discount": "-6.50%",
+    "annualized": "30.4%"
   }
 }
