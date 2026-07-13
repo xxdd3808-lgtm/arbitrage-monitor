@@ -1,4 +1,19 @@
 {
-  "pending": [],
+  "pending": [
+    {
+      "code": "161040",
+      "signal_type": "sealed_discount",
+      "baseline_price": 2.429,
+      "baseline_price_aux": 2.5447,
+      "baseline_date": "2026-07-13"
+    },
+    {
+      "code": "161914",
+      "signal_type": "sealed_discount",
+      "baseline_price": 0.935,
+      "baseline_price_aux": 1.0,
+      "baseline_date": "2026-07-13"
+    }
+  ],
   "completed": []
 }
